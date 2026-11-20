@@ -23,9 +23,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULT_BASE_URL = "https://chato.cl/webspam/datasets/uk2007/"
-DEFAULT_RAW_DIR = "data/raw"
-
 # (기준 URL 기준 상대 경로, 압축 해제 폴더 이름 또는 None)
 FILES = [
     ("webspam-uk2007-set1-1.0.tar.gz", "set1"),
@@ -39,13 +36,20 @@ USER_AGENT = "webspam-downloader/1.0"
 
 
 def load_config(path: Path) -> dict:
-    """설정 파일을 읽는다. 비어 있거나 키가 없으면 기본값을 쓴다."""
-    cfg = {}
-    if path.exists():
-        with open(path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-    base_url = cfg.get("download", {}).get("base_url", DEFAULT_BASE_URL)
-    raw_dir = cfg.get("paths", {}).get("raw_dir", DEFAULT_RAW_DIR)
+    """설정 파일에서 download.base_url, paths.raw_dir를 읽는다. 파일이나 키가 없으면 오류."""
+    if not path.exists():
+        raise FileNotFoundError(f"설정 파일 없음: {path}")
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    def get(section: str, key: str):
+        value = (cfg.get(section) or {}).get(key)
+        if value is None:
+            raise ValueError(f"{path}에 설정 키 {section}.{key} 없음")
+        return value
+
+    base_url = get("download", "base_url")
+    raw_dir = get("paths", "raw_dir")
     if not base_url.endswith("/"):
         base_url += "/"
     return {"base_url": base_url, "raw_dir": ROOT / raw_dir}
