@@ -1,56 +1,73 @@
 # Trust-Aware_Spam_Ranking
-- 사용 데이터셋: [WEBSPAM-UK2007](https://chato.cl/webspam/datasets/uk2007/) (`.uk` 웹 호스트 그래프 + 호스트 단위 스팸 라벨)
+- 사용 데이터셋: [WEBSPAM-UK2007](https://chato.cl/webspam/datasets/uk2007/) (`.uk` 웹 호스트 그래프 + 호스트 단위 스팸 라벨). 파일 형식·라벨·통계·라이선스는 [data/README.md](data/README.md) 참고.
 - 프로젝트 목표: 
 
-# 데이터셋
+# 코드 구성
 
-WEBSPAM-UK2007은 2007년 5월에 수집한 `.uk` 도메인 웹 데이터(호스트 114,529개)에 스팸 여부 라벨을 붙인 데이터셋이다. 이 프로젝트에서는 페이지 본문은 쓰지 않고 **호스트 그래프와 라벨**만 사용한다. 데이터셋 배경은 [data/README.md](data/README.md)를 참고한다.
-
-## 사용 파일
-
-| 파일 | 내용 | 형식 |
+| 파일 | 내용 | 상태 |
 |---|---|---|
-| `uk-2007-05.hostgraph_weighted.graph-txt.gz` | 호스트 간 링크 그래프 | 1행 = 호스트 수 N, 2행부터 한 줄에 호스트 하나(0번부터)의 나가는 링크를 `도착id:링크수`로 나열 (공백 구분, 빈 줄 = 나가는 링크 없음) |
-| `uk-2007-05.hostnames.txt.gz` | 호스트 id ↔ 이름 대응표 | `id hostname` (기본 포트가 아니면 `:포트`가 붙음. 예: `afis.postoffice.co.uk:8080`) |
-| `webspam-uk2007-set1-1.0.tar.gz` | SET1 라벨 (학습용) | `hostid label spamicity assessments` |
-| `webspam-uk2007-set2-1.0.tar.gz` | SET2 라벨 (테스트용) | SET1과 같음 |
+| `configs/default.yaml` | 모든 설정값 (경로, β, tol, 분할 비율, seed 등) | 작성 |
+| `scripts/download_data.py` | 원본 4개 다운로드, 라벨 압축 해제 | 작성 |
+| `src/common/schema.py` | 공통 자료형 `HostGraph`, `Dataset`, 라벨 상수 | 작성 |
+| `src/data.py` | raw parsing, train/val/test 분할, `load_dataset()` | 작성 예정 |
+| `src/graph.py` | 전이 행렬 `build_transition`, 도메인 판정 `domain_of` | 작성 |
+| `src/rank.py` | 공통 `power_iteration`, `pagerank` | 작성 |
+| `tests/test_rank.py` | 강의 예제·networkx 교차 확인·불변식·예외 테스트 | 작성 |
+| `scripts/build_processed.py` | raw → `data/processed/` | 작성 예정 |
+| `src/baselines.py`, `scripts/run_baselines.py` | random·in-degree baseline, PageRank 점수 저장 | 작성 예정 |
+| `notebooks/01_eda.ipynb` | EDA | 작성 예정 |
 
-- 네 파일 모두 같은 호스트 id(0 ~ 114,528)를 쓴다.
-- `.gz` 두 파일은 압축을 풀지 않고 `gzip.open()`으로 바로 읽는다. 라벨 `.tar.gz`는 `data/raw/set1/`, `data/raw/set2/`에 풀린다.
-- 그래프의 링크 수(weight)는 두 호스트의 페이지 사이에 있는 하이퍼링크 개수이다. 예: `70094:293` = 이 호스트에서 70094번 호스트로 가는 링크 293개.
-- 라벨 파일의 `label`은 `nonspam` / `spam` / `undecided`, `spamicity`는 평가자 판정의 평균(N = 0, B = 0.5, S = 1, U는 제외)이다.
+# 사용 예시
 
-## 라벨
+프로젝트 루트에서 실행하는 기준이다. 설정값은 `configs/default.yaml`에서 읽는다.
 
-| | SET1 (학습용) | SET2 (테스트용) |
-|---|---:|---:|
-| nonspam | 3,776 | 1,933 |
-| spam | 222 | 122 |
-| undecided | 277 | 149 |
-| **합계** | **4,275** | **2,204** |
+```python
+import numpy as np
+import yaml
 
-- 라벨이 있는 호스트는 6,479개로 전체의 약 5.7%이다.
-- SET1과 SET2에 겹치는 호스트는 없다. 공식 분할은 3단계 도메인 단위로 되어 있어, `www1.example.co.uk`와 `www2.example.co.uk`는 항상 같은 세트에 들어간다.
-- 검증(val) 데이터는 SET1을 다시 나눠 만든다. SET2는 최종 평가에만 쓴다.
+cfg = yaml.safe_load(open("configs/default.yaml", encoding="utf-8"))
+```
 
-## 호스트 그래프 통계
+아래 예시의 `ds`는 `src/data.py`의 `load_dataset()`(작성 예정)으로 받는 `Dataset`이다 (자료형은 아래 "공통 자료형" 참고).
 
-원본 파일에서 직접 집계한 값이다.
+**전이 행렬·도메인 (`src/graph.py`)**
 
-| 항목 | 값 |
-|---|---:|
-| 호스트 수 N | 114,529 |
-| edge 수 | 1,836,441 |
-| self-loop | 0 |
-| dead end (나가는 링크 0) | 49,379 (43.1%) |
-| 들어오는 링크 0 | 4,766 |
-| 고립 호스트 (나가는 링크·들어오는 링크 모두 0) | 3,380 |
-| weight (링크 수) | 최소 1 · 중앙값 1 · 최대 2,579,857 |
-| 평균 out-degree | 16.0 |
+```python
+from src.graph import build_transition, domain_of
 
-## 라이선스
+M = build_transition(ds.graph.adjacency)     # column-stochastic 전이 행렬
+domain_of("www.ox.ac.uk")                    # "ac.uk"
+```
 
-라벨은 [CC BY-NC-SA 3.0](http://creativecommons.org/licenses/by-nc-sa/3.0/)이다 (라벨 압축 파일의 `README.txt` 기준). 연구 목적으로 사용할 수 있으며, 공개 재배포 시 비상업·동일조건 조항이 적용된다.
+**PageRank·TrustRank (`src/rank.py`)**: `cfg["rank"]`를 그대로 넘기면 β, tol, max_iter, dangling이 적용된다.
+
+```python
+from src.common.schema import NONSPAM
+from src.rank import pagerank, power_iteration
+
+r = pagerank(M, **cfg["rank"])               # PageRank
+top10 = [ds.graph.hostnames[i] for i in np.argsort(-r)[:10]]
+
+s = np.zeros(ds.graph.n)                     # TrustRank: train의 nonspam host를 seed로
+s[ds.train_idx[ds.labels[ds.train_idx] == NONSPAM]] = 1.0
+t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가능한 host는 0
+```
+
+# 설정 (`configs/default.yaml`)
+
+모든 script·notebook은 이 파일에서 설정값을 읽는다 (코드에 숫자를 직접 쓰지 않음). 실험 설정을 바꿀 때는 파일을 복사해 `configs/beta090.yaml`처럼 만들고 `--config`로 지정한다.
+
+| 섹션 | 키 | 값 | 비고 |
+|---|---|---|---|
+| `paths` | `raw_dir` / `processed_dir` / `scores_dir` / `figures_dir` | `data/raw` / `data/processed` / `results/scores` / `results/figures` | 프로젝트 루트 기준 |
+| `download` | `base_url` | WEBSPAM-UK2007 공식 주소 | |
+| `rank` | `beta` | 0.85 | 링크를 따라갈 확률 |
+| | `tol` | 1.0e-8 | `1e-8`로 쓰면 문자열로 읽히므로 반드시 `1.0e-8` |
+| | `max_iter` | 300 | |
+| | `dangling` | `teleport` | dead end 처리 (`teleport` / `uniform`) |
+| `split` | `val_frac` / `random_seed` | 0.2 / 42 | B·C와 합의 후 확정 |
+| `baselines` | `random_seed` | 42 | |
+| `domains` | `ppr_seed_domains` | `[ac.uk, gov.uk]` | B와 결정 |
 
 # 공통 자료형 (`src/common/schema.py`)
 
@@ -101,6 +118,72 @@ WEBSPAM-UK2007은 2007년 5월에 수집한 `.uk` 도메인 웹 데이터(호스
 
 - `frozen=True`는 배열 안의 값 수정(`ds.labels[0] = 1`)까지 막지는 않으므로, 받은 배열을 직접 고치지 않는다.
 
+# 그래프·랭킹 (`src/graph.py`, `src/rank.py`)
+
+## 행렬 방향
+
+행렬 방향은 `build_transition` 한 곳에서만 정한다. B는 `build_transition`이 준 `M`만 쓰고 직접 전치하지 않는다.
+
+| 행렬 | 방향 | 의미 |
+|---|---|---|
+| `A` (adjacency) | 행 = 출발, 열 = 도착 | `A[i, j]` = host i → host j의 링크 수 |
+| `M` (전이 행렬) | column-stochastic (강의와 같음) | `M[j, i]` = i에서 j로 갈 확률. dead end 열은 0 |
+
+```python
+from src.graph import build_transition, domain_of
+from src.rank import pagerank, power_iteration
+
+A = ds.graph.adjacency
+M     = build_transition(A)                  # 이진 (기본, 강의식 1/d_i)
+M_w   = build_transition(A, weighted=True)   # 링크 수 가중
+M_rev = build_transition(A.T.tocsr())        # 뒤집은 그래프 (Inverse PR)
+dom   = [domain_of(h) for h in ds.graph.hostnames]   # "ac.uk", "gov.uk", ..., 목록 밖은 "other"
+```
+
+- `build_transition`은 원본 `A`를 바꾸지 않는다 (내부에서 복사).
+- `domain_of`는 대소문자, 끝의 `.`, 포트(`:8080`)를 무시한다. `UK_SLD`(ac, co, gov, org, ltd, plc, me, net, nhs, police, sch, mod, nic) 밖은 `"other"`이며, 실제 데이터에서 `other`는 28개(`bl.uk`, `parliament.uk` 등)뿐이다.
+
+## `power_iteration`
+
+```python
+r = pagerank(M)                                  # PageRank (teleport 균등)
+r = power_iteration(M, teleport=s)               # PPR·TrustRank (s: 길이 N, seed 위치만 0이 아님)
+r, info = pagerank(M, return_info=True)          # info: iterations, residual, converged, time_sec
+```
+
+| 인자 | 기본값 | 내용 |
+|---|---|---|
+| `teleport` | `None` (균등) | 길이 N, ≥ 0, 합 > 0. 함수 안에서 합 1로 정규화 |
+| `beta` / `tol` / `max_iter` | 0.85 / 1e-8 / 300 | 실제 값은 `configs/default.yaml`의 `rank`에서 읽어 넘긴다 |
+| `dangling` | `"teleport"` | `"teleport"`: dead end 누출분을 s로 → seed에서 도달 불가능한 host는 **정확히 0**. `"uniform"`: dead end 누출분을 모든 host에 균등 분배 |
+
+- 결과 `r`은 길이 N float64, 합 = 1, 모두 ≥ 0이다.
+- 초기값은 `r(0) = s`이다. 1/N으로 시작하면 도달 불가능한 host 점수가 0이 되지 않으므로 바꾸지 않는다.
+- `max_iter` 안에 수렴하지 못하면 `RuntimeWarning`을 내고 마지막 `r`을 돌려준다. `dangling`에 다른 값이 오면 `ValueError`.
+
+실제 그래프에서의 수렴 (`tol` 1e-8):
+
+| | β = 0.85 | β = 0.90 |
+|---|---|---|
+| PageRank (이진) | 81회, 0.16초 | 123회, 0.30초 |
+| PageRank (가중) | 83회, 0.20초 | 126회, 0.27초 |
+| Inverse PR | 69회, 0.15초 | 99회, 0.20초 |
+
+# 테스트 (`tests/test_rank.py`)
+
+데이터·네트워크 없이 1초 안에 끝난다. 엔진(`graph.py`, `rank.py`)을 고친 뒤에는 merge 전에 반드시 실행한다.
+
+| 그룹 | 내용 | 허용 오차 |
+|---|---|---|
+| build_transition | 강의 예제 행렬, dead end 열 = 0, 이진·가중 차이, 원본 보존 | — |
+| test 1–4 | 강의 예제 (Flow, Spider trap, Dead end, Topic-Specific) | 1e-3 |
+| test 5–6 | 강의 표 (seed 집합·β 변화) | 0.01 |
+| test 7–8 | 무작위 300-node 그래프에서 `networkx.pagerank`와 비교 | 1e-12 |
+| 불변식 | 합 = 1, ≥ 0, seed에서 도달 불가능한 host `== 0` | 정확히 |
+| 예외·경고 | `ValueError`, `RuntimeWarning`, 빈 seed `AssertionError` | — |
+
+- `networkx`는 결과 검증(test 7–8)에만 쓰며, 이 프로젝트의 알고리즘이 아니다. test 7은 `networkx`의 기본 dead end 처리(personalization으로 보냄)를 `dangling="teleport"`와, test 8은 균등 `dangling`을 `"uniform"`과 대응시킨다.
+
 # 프로젝트 실행 방법
 
 ## 환경 설정
@@ -113,6 +196,12 @@ WEBSPAM-UK2007은 2007년 5월에 수집한 `.uk` 도메인 웹 데이터(호스
 python scripts/download_data.py
 ```
 
-- 원본 4개(약 8.6 MB)를 `data/raw/`에 받고, 라벨 압축 파일 2개를 풀어 둔다.
-- 이미 받은 파일은 건너뛰며, 마지막에 파일별 크기와 SHA-256을 출력한다.
-- `data/raw/`, `data/processed/`의 데이터 파일은 Git에 올리지 않는다.
+원본 4개(약 8.6 MB)를 `data/raw/`에 받고 라벨 압축 파일을 푼다. 자세한 동작과 파일별 SHA-256은 [data/README.md](data/README.md) 참고. `data/raw/`, `data/processed/`의 데이터 파일은 Git에 올리지 않는다.
+
+## 테스트
+
+```
+pytest
+```
+
+프로젝트 루트에서 실행한다. `pytest.ini`가 루트를 import 경로에 넣어 주므로 `src`를 바로 import할 수 있다. 테스트 파일을 `python tests/test_rank.py`로 직접 실행하면 `src`를 찾지 못한다.
