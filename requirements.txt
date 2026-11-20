@@ -1,0 +1,18 @@
+# Python 3.12
+# 설치: pip install -r requirements.txt
+
+# 계산
+numpy==2.5.5
+scipy==1.18.1
+networkx==3.7          # PageRank 구현 검증용 (tests)
+
+# 데이터·평가
+pandas==3.1.1
+scikit-learn==1.9.1
+
+# 설정·시각화
+pyyaml==6.0.3
+matplotlib==3.11.2
+
+# 테스트
+pytest==9.2.0
