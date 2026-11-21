@@ -19,9 +19,10 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))          # `python scripts/...`로 실행해도 src를 import할 수 있게
+
+from src.config import DEFAULT_CONFIG, load_config  # noqa: E402
 
 # (기준 URL 기준 상대 경로, 압축 해제 폴더 이름 또는 None)
 FILES = [
@@ -33,26 +34,6 @@ FILES = [
 
 CHUNK = 1 << 20  # 1 MiB
 USER_AGENT = "webspam-downloader/1.0"
-
-
-def load_config(path: Path) -> dict:
-    """설정 파일에서 download.base_url, paths.raw_dir를 읽는다. 파일이나 키가 없으면 오류."""
-    if not path.exists():
-        raise FileNotFoundError(f"설정 파일 없음: {path}")
-    with open(path, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-
-    def get(section: str, key: str):
-        value = (cfg.get(section) or {}).get(key)
-        if value is None:
-            raise ValueError(f"{path}에 설정 키 {section}.{key} 없음")
-        return value
-
-    base_url = get("download", "base_url")
-    raw_dir = get("paths", "raw_dir")
-    if not base_url.endswith("/"):
-        base_url += "/"
-    return {"base_url": base_url, "raw_dir": ROOT / raw_dir}
 
 
 def sha256_of(path: Path) -> str:
@@ -103,18 +84,19 @@ def extract(archive: Path, out_dir: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="WEBSPAM-UK2007 원본 다운로드")
-    parser.add_argument("--config", default="configs/default.yaml", help="설정 파일 경로")
+    parser.add_argument("--config", default=DEFAULT_CONFIG, help="설정 파일 경로")
     args = parser.parse_args()
 
-    cfg = load_config(ROOT / args.config)
-    raw_dir: Path = cfg["raw_dir"]
+    cfg = load_config(args.config)
+    base_url = str(cfg.require("download", "base_url")).rstrip("/") + "/"
+    raw_dir = cfg.path("raw_dir")
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     summary = []
     for rel, extract_to in FILES:
         name = Path(rel).name
         dest = raw_dir / name
-        url = cfg["base_url"] + rel
+        url = base_url + rel
         print(f"[{name}]")
         if dest.exists():
             print("  다운로드 건너뜀 (이미 있음)")
