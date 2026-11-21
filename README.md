@@ -7,28 +7,60 @@
 | 파일 | 내용 | 상태 |
 |---|---|---|
 | `configs/default.yaml` | 모든 설정값 (경로, β, tol, 분할 비율, seed 등) | 작성 |
-| `scripts/download_data.py` | 원본 4개 다운로드, 라벨 압축 해제 | 작성 |
+| `src/config.py` | 설정 파일 읽기 `load_config` (모든 script·notebook 공통) | 작성 |
 | `src/common/schema.py` | 공통 자료형 `HostGraph`, `Dataset`, 라벨 상수 | 작성 |
 | `src/data.py` | raw parsing, train/val/test 분할(사이트 단위), `load_dataset()` | 작성 |
 | `src/graph.py` | 전이 행렬 `build_transition`, 도메인 판정 `domain_of`·`site_of` | 작성 |
 | `src/rank.py` | 공통 `power_iteration`, `pagerank` | 작성 |
-| `tests/test_rank.py` | 강의 예제·networkx 교차 확인·불변식·예외 테스트 | 작성 |
-| `scripts/build_processed.py` | raw → `data/processed/` | 작성 예정 |
-| `src/baselines.py`, `scripts/run_baselines.py` | random·in-degree baseline, PageRank 점수 저장 | 작성 예정 |
+| `src/baselines.py` | random·in-degree baseline 점수 | 작성 |
+| `scripts/download_data.py` | 원본 4개 다운로드, 라벨 압축 해제 | 작성 |
+| `scripts/build_processed.py` | raw → `data/processed/` (분할 포함) | 작성 |
+| `scripts/run_baselines.py` | PageRank·baseline 점수 → `results/scores/` | 작성 |
+| `tests/test_rank.py`, `tests/test_config.py` | 엔진·설정 테스트 | 작성 |
 | `notebooks/01_eda.ipynb` | EDA | 작성 예정 |
+
+# 실행 순서
+
+## 환경 설정
+- Python 3.12
+- 패키지: `pip install -r requirements.txt`
+
+## 실행
+
+프로젝트 루트에서 실행한다. 모든 script는 `--config`로 다른 설정 파일을 지정할 수 있다 (기본 `configs/default.yaml`).
+
+```
+python scripts/download_data.py      # 1. 원본 → data/raw/
+python scripts/build_processed.py    # 2. data/raw/ → data/processed/
+python scripts/run_baselines.py      # 3. PageRank·baseline 점수 → results/scores/
+pytest                               # 엔진·설정 테스트 (데이터 불필요)
+```
+
+| 단계 | 출력 | 시간 |
+|---|---|---|
+| 1. `download_data.py` | 원본 4개(약 8.6 MB), 라벨 압축 해제. 이미 받은 파일은 건너뜀 | 네트워크에 따라 |
+| 2. `build_processed.py` | `graph.npz`, `hostnames.txt`, `labels.csv`, `split.npz`, `meta.json` | 약 3초 |
+| 3. `run_baselines.py` | 점수 4개 (`.npy` + `.json`) | 약 1초 |
+
+- 2단계는 점검 수치(N, edge 수, 라벨 수)가 기대값과 다르면 경고를 출력한다. 원본 SHA-256과 점검 통계는 `data/processed/meta.json`에 기록된다.
+- 2단계를 다시 실행해 **분할이 바뀌면 "기존과 달라짐"이 출력된다 → B·C에게 공유**한다 (점수·평가를 다시 내야 함).
+- `data/raw/`, `data/processed/`, `results/scores/`의 파일은 Git에 올리지 않는다. 각자 위 순서로 만든다.
+- 원본 파일 상세와 SHA-256은 [data/README.md](data/README.md) 참고.
 
 # 사용 예시
 
-프로젝트 루트에서 실행하는 기준이다. 설정값은 `configs/default.yaml`에서 읽는다.
+**설정 (`src/config.py`)**
 
 ```python
 import numpy as np
-import yaml
+from src.config import load_config
 
-cfg = yaml.safe_load(open("configs/default.yaml", encoding="utf-8"))
+cfg = load_config()                          # configs/default.yaml
+cfg.require("rank", "beta")                  # 0.85 (키가 없으면 어떤 키가 없는지 알려주는 ValueError)
+cfg.path("scores_dir")                       # 프로젝트 루트 기준 절대 경로
 ```
 
-아래 예시의 `ds`는 `src/data.py`의 `load_dataset()`으로 받는 `Dataset`이다 (자료형은 아래 "공통 자료형" 참고). `data/processed/`가 있어야 하며, 이는 `scripts/build_processed.py`(작성 예정)로 만든다.
+**데이터 (`src/data.py`)**: B·C는 `load_dataset()`만 쓴다. 자료형은 아래 "공통 자료형" 참고.
 
 ```python
 from src.data import load_dataset
@@ -61,6 +93,26 @@ s[ds.train_idx[ds.labels[ds.train_idx] == NONSPAM]] = 1.0
 t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가능한 host는 0
 ```
 
+**Baseline (`src/baselines.py`)**
+
+```python
+from src.baselines import indegree_scores, random_scores
+
+rnd = random_scores(ds.graph.n, cfg.require("baselines", "random_seed"))   # [0, 1) 균등 난수
+deg = indegree_scores(ds.graph.adjacency)    # −log1p(in_deg), 클수록 spam 의심
+```
+
+**점수 파일 읽기 (C)**: `.json`의 `higher_is_spam`으로 방향을 맞춘 뒤 평가한다.
+
+```python
+import json
+
+name = "pagerank_binary_b085"
+scores = np.load(cfg.path("scores_dir") / f"{name}.npy")
+meta = json.loads((cfg.path("scores_dir") / f"{name}.json").read_text(encoding="utf-8"))
+risk = -scores if meta["higher_is_spam"] is False else scores   # 클수록 spam 의심으로 통일
+```
+
 # 설정 (`configs/default.yaml`)
 
 모든 script·notebook은 이 파일에서 설정값을 읽는다 (코드에 숫자를 직접 쓰지 않음). 실험 설정을 바꿀 때는 파일을 복사해 `configs/beta090.yaml`처럼 만들고 `--config`로 지정한다.
@@ -76,6 +128,45 @@ t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가�
 | `split` | `val_frac` / `random_seed` | 0.3 / 42 | 팀 합의값. val spam이 부족하면 더 늘려 봄 |
 | `baselines` | `random_seed` | 42 | |
 | `domains` | `ppr_seed_domains` | `[ac.uk, gov.uk]` | B와 결정 |
+
+설정은 `src/config.py`의 `load_config()`로 읽는다. 각자 yaml을 직접 열지 않는다.
+
+| 기능 | 사용법 | 내용 |
+|---|---|---|
+| 읽기 | `load_config()` / `load_config("configs/beta090.yaml")` | 결과는 dict처럼 쓸 수 있음 (`cfg["rank"]["beta"]`) |
+| 필수 키 | `cfg.require("rank", "beta")` | 키가 없거나 비어 있으면 `ValueError` (예: `...에 설정 키 rank.beta 없음`) |
+| 경로 | `cfg.path("scores_dir")` | `paths.*`를 프로젝트 루트 기준 절대 경로로 |
+
+- 상대 경로는 설정 파일 경로와 `paths.*` 모두 **프로젝트 루트 기준**이다. `scripts/`, `notebooks/` 어디서 실행해도 같은 파일을 가리킨다.
+
+# 점수 파일 (`results/scores/`)
+
+모든 방법(PageRank, baseline, B의 PPR·TrustRank 등)의 점수는 같은 형식으로 저장해 C가 같은 방식으로 평가한다.
+
+| 파일 | 형식 |
+|---|---|
+| `<method>_<config>.npy` | 길이 N float64, index = host id |
+| `<method>_<config>.json` | `method`, `higher_is_spam`, 사용한 설정값(`config`), 수렴 정보(`info`, power iteration만), `n`, `created` |
+
+**점수 방향 `higher_is_spam`**: 방법마다 원래 점수를 그대로 저장하고, 방향은 `.json`에 기록한다.
+
+| 값 | 의미 | 예 |
+|---|---|---|
+| `false` | 클수록 spam 아님 | PageRank, TrustRank |
+| `true` | 클수록 spam 의심 | in-degree baseline, spam mass |
+| `null` | 방향 없음 | random |
+
+현재 `run_baselines.py`가 만드는 파일 (β = 0.85):
+
+| 파일 | `higher_is_spam` | 비고 |
+|---|---|---|
+| `pagerank_binary_b085` | `false` | 이진 그래프, 81회 수렴. B의 spam mass, C의 E1에 사용 |
+| `pagerank_weighted_b085` | `false` | 링크 수 가중 그래프, 83회 수렴 (E5) |
+| `random_seed42` | `null` | [0, 1) 균등 난수 |
+| `indegree` | `true` | `−log1p(in_deg)`, in_deg = 링크를 거는 host 수 |
+
+- β를 바꾼 config로 실행하면 `pagerank_binary_b090`처럼 파일 이름으로 구분된다.
+- 저장 형식은 `scripts/run_baselines.py`의 `save_scores()`를 참고한다.
 
 # 공통 자료형 (`src/common/schema.py`)
 
@@ -110,6 +201,14 @@ t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가�
 | `train_idx` | `np.ndarray`, int64 | SET1의 spam·nonspam 일부 (seed 선택·학습) |
 | `val_idx` | `np.ndarray`, int64 | SET1의 나머지 (β 등 조정) |
 | `test_idx` | `np.ndarray`, int64 | SET2의 spam·nonspam (최종 평가에만 사용) |
+
+현재 분할 (val 30%, seed 42):
+
+| 분할 | host 수 | spam | nonspam |
+|---|---:|---:|---:|
+| train | 2,798 | 155 | 2,643 |
+| val | 1,200 | 67 | 1,133 |
+| test | 2,055 | 122 | 1,933 |
 
 - 분할 배열의 값은 **host id**이므로 `ds.labels[ds.train_idx]`처럼 바로 쓸 수 있다.
 - 세 분할 모두 undecided와 라벨 없는 호스트는 제외한다.
@@ -179,9 +278,15 @@ r, info = pagerank(M, return_info=True)          # info: iterations, residual, c
 | PageRank (가중) | 83회, 0.20초 | 126회, 0.27초 |
 | Inverse PR | 69회, 0.15초 | 99회, 0.20초 |
 
-# 테스트 (`tests/test_rank.py`)
+# 테스트 (`tests/`)
 
-데이터·네트워크 없이 1초 안에 끝난다. 엔진(`graph.py`, `rank.py`)을 고친 뒤에는 merge 전에 반드시 실행한다.
+```
+pytest
+```
+
+프로젝트 루트에서 실행한다. 데이터·네트워크 없이 1초 안에 끝난다. 엔진(`graph.py`, `rank.py`)이나 설정 코드를 고친 뒤에는 merge 전에 반드시 실행한다. `pytest.ini`가 루트를 import 경로에 넣어 주므로 `src`를 바로 import할 수 있다 (테스트 파일을 `python tests/...`로 직접 실행하면 `src`를 찾지 못함).
+
+**`tests/test_rank.py`** (22개)
 
 | 그룹 | 내용 | 허용 오차 |
 |---|---|---|
@@ -194,24 +299,4 @@ r, info = pagerank(M, return_info=True)          # info: iterations, residual, c
 
 - `networkx`는 결과 검증(test 7–8)에만 쓰며, 이 프로젝트의 알고리즘이 아니다. test 7은 `networkx`의 기본 dead end 처리(personalization으로 보냄)를 `dangling="teleport"`와, test 8은 균등 `dangling`을 `"uniform"`과 대응시킨다.
 
-# 프로젝트 실행 방법
-
-## 환경 설정
-- Python 3.12
-- 패키지: `pip install -r requirements.txt`
-
-## 데이터 준비
-
-```
-python scripts/download_data.py
-```
-
-원본 4개(약 8.6 MB)를 `data/raw/`에 받고 라벨 압축 파일을 푼다. 자세한 동작과 파일별 SHA-256은 [data/README.md](data/README.md) 참고. `data/raw/`, `data/processed/`의 데이터 파일은 Git에 올리지 않는다.
-
-## 테스트
-
-```
-pytest
-```
-
-프로젝트 루트에서 실행한다. `pytest.ini`가 루트를 import 경로에 넣어 주므로 `src`를 바로 import할 수 있다. 테스트 파일을 `python tests/test_rank.py`로 직접 실행하면 `src`를 찾지 못한다.
+**`tests/test_config.py`** (7개): 기본 설정 읽기, 현재 폴더와 무관한 경로 해석, 없는 파일·없는 키·잘못된 형식의 오류.
