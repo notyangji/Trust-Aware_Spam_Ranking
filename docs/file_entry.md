@@ -1,7 +1,7 @@
 # 파일 구조 예상도
 
 GUIDE_A_graph_core.md(v2) 기준. 작성일 2026-11-15. 담당: A = 데이터·그래프·PageRank, B = PPR·TrustRank·Inverse PR, C = 실험·평가.
-대괄호 안 숫자는 GUIDE의 절 번호. (B의 역할은 그냥 [B]로 적었음. 이건 절 번호랑 별개로 구분한거임.)
+대괄호 안 숫자는 GUIDE의 절 번호. (B의 역할은 그냥 [B]로 적었음. 이건 절 번호랑 별개로 구분한거임.) C의 파일도 [C]로 표시.
 
 ```
 team_project/
@@ -10,13 +10,17 @@ team_project/
 ├── .gitignore                     # data/raw/, data/processed/, results/scores/
 ├── configs/
 │   ├── default.yaml               # beta, tol, max_iter, val_frac, random_seed, 파일 경로
-│   └── seeds.yaml                 # [B] seed 선정 방식·개수·품질·난수 설정
+│   ├── seeds.yaml                 # [B] seed 선정 방식·개수·품질·난수 설정
+│   ├── experiments/               # [C] 실험별 설정 e1.yaml … e6.yaml
+│   └── final.yaml                 # [C] 최종 test 평가 목록
 │
 ├── scripts/                       # 실행용 (python scripts/xxx.py)
 │   ├── download_data.py           # [3.1] 원본 4개 다운로드, SHA-256 출력
 │   ├── build_processed.py         # [3.2–3.6] raw → processed (점검 통계, split.npz 포함)
 │   ├── run_baselines.py           # [6] PageRank·Random·in-degree 점수 계산 → results/scores/
-│   └── run_seeded_rankings.py      # [B] seed 선정 → 점수 계산 → 결과 저장
+│   ├── run_seeded_rankings.py      # [B] seed 선정 → 점수 계산 → 결과 저장
+│   ├── run_experiment.py          # [C] 실험 실행 → results/metrics/<exp>.csv (val만)
+│   └── run_final_test.py          # [C] 최종 test 평가 1회 → results/metrics/final_test.csv
 │
 ├── src/
 │   ├── __init__.py
@@ -30,16 +34,19 @@ team_project/
 │   ├── baselines.py               # [6] random_scores, indegree_scores
 │   ├── seeds.py                   # [B] topic/trusted seed 선정·개인화 벡터 구성
 │   ├── ppr.py                     # [B] Personalized PageRank
-│   └── trust.py                   # [B] TrustRank·Inverse PR·spam mass·hop 거리 baseline
+│   ├── trust.py                   # [B] TrustRank·Inverse PR·spam mass·hop 거리 baseline
+│   └── metrics.py                 # [C] PR-AUC, ROC-AUC, P@K, 방향 결정, bootstrap CI
 │
 ├── tests/
 │   ├── test_rank.py               # [7] test 1–8 + 불변식 + 예외·경고
 │   ├── test_seeds.py              # [B] seed 선정·개인화 벡터 검증
 │   ├── test_ppr.py                # [B] PPR 검증
-│   └── test_trust.py              # [B] TR 및 관련 점수·baseline 검증
+│   ├── test_trust.py              # [B] TR 및 관련 점수·baseline 검증
+│   └── test_metrics.py            # [C] 평가 지표 검증
 │
 ├── notebooks/
-│   └── 01_eda.ipynb               # [8] EDA, 도메인 집계
+│   ├── 01_eda.ipynb               # [8] EDA, 도메인 집계
+│   └── 02_results.ipynb           # [C] 그림, 표, error analysis
 │
 ├── data/
 │   ├── README.md                  # 출처, 접근일, SHA-256, license, 인용 (git에 포함)
@@ -48,7 +55,8 @@ team_project/
 │
 ├── results/
 │   ├── scores/                    # <method>_<config>.npy, 길이 N float64
-│   └── figures/                   # EDA 그림
+│   ├── metrics/                   # [C] e1.csv … e6.csv (val), final_test.csv (test) (git에 포함)
+│   └── figures/                   # EDA 그림, [C] 결과 그림 (git에 포함)
 │
 └── docs/
     └── AI_USE.md                  # AI 사용 기록 [10]
@@ -77,6 +85,14 @@ team_project/
 | `tests/test_seeds.py` | B | seed 후보 범위, 중복·빈 집합·잘못된 ID, 재현성, 개인화 벡터 검증 | 전원 |
 | `tests/test_ppr.py` | B | 균등 개인화 시 PR과의 일치, 점수 합·비음수성 검증 | 전원 |
 | `tests/test_trust.py` | B | TR의 PPR 연계, seed 도달성·역방향 그래프·관련 점수 검증 | 전원 |
+| `src/metrics.py` | C | PR-AUC, ROC-AUC, P@K(동점은 기대값), 점수 방향 결정(val), stratified paired bootstrap CI | C (B도 seed 확인용으로 사용 가능) |
+| `tests/test_metrics.py` | C | 손계산 예제, sklearn 교차 확인, 동점 처리, 예외 | 전원 |
+| `configs/experiments/e*.yaml` | C | E1–E6 실험 grid (기본값 외에 바꾸는 값만) | C |
+| `scripts/run_experiment.py` | C | 설정별 점수 계산 → val 평가 → CSV 저장. test는 쓰지 않음 | C |
+| `configs/final.yaml` | C | 최종 test 평가 목록 (val 결과로 확정) | C |
+| `scripts/run_final_test.py` | C | 최종 목록만 test 평가 1회, 95% CI 포함 | C (한 번 실행) |
+| `results/metrics/*.csv` | C | 실행 1번 = 한 줄 (설정, 지표, 수렴 정보) | 보고서 |
+| `notebooks/02_results.ipynb` | C | CSV로 그림·표 작성, error analysis | 보고서, 발표 |
 
 ## 작성 순서
 
