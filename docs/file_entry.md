@@ -1,7 +1,7 @@
 # 파일 구조 예상도
 
 GUIDE_A_graph_core.md(v2) 기준. 작성일 2026-11-15. 담당: A = 데이터·그래프·PageRank, B = PPR·TrustRank·Inverse PR, C = 실험·평가.
-대괄호 안 숫자는 GUIDE의 절 번호. (B의 역할은 그냥 [B]로 적었음. 이건 절 번호랑 별개로 구분한거임.) C의 파일도 [C]로 표시.
+대괄호 안 숫자는 GUIDE의 절 번호. (B, C의 역할은 그냥 [B], [C]로 적었음. 이건 절 번호랑 별개로 구분한거임.)
 
 ```
 team_project/
