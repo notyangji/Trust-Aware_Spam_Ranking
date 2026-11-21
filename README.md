@@ -17,7 +17,7 @@
 | `scripts/build_processed.py` | raw → `data/processed/` (분할 포함) | 작성 |
 | `scripts/run_baselines.py` | PageRank·baseline 점수 → `results/scores/` | 작성 |
 | `tests/test_rank.py`, `tests/test_config.py` | 엔진·설정 테스트 | 작성 |
-| `notebooks/01_eda.ipynb` | EDA | 작성 예정 |
+| `notebooks/01_eda.ipynb` | EDA: 통계표, degree 분포, spam/nonspam 비교, TrustRank 가정, 도메인 집계, seed 도달 범위 | 작성 |
 
 # 실행 순서
 
