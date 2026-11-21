@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 from pathlib import Path
+from typing import Literal, overload
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,13 @@ def _open_text(path: str | Path):
     if path.suffix == ".gz":
         return gzip.open(path, "rt", encoding="utf-8")
     return open(path, encoding="utf-8")
+
+
+# return_stats 값에 따라 반환 타입을 편집기(Pylance 등)에 알려주는 선언. 실행 동작과는 무관.
+@overload
+def load_graph(path, return_stats: Literal[False] = ...) -> sp.csr_matrix: ...
+@overload
+def load_graph(path, return_stats: Literal[True]) -> tuple[sp.csr_matrix, dict[str, int]]: ...
 
 
 def load_graph(path, return_stats=False):
