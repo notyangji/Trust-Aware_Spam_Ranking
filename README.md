@@ -65,7 +65,7 @@ t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가�
 | | `tol` | 1.0e-8 | `1e-8`로 쓰면 문자열로 읽히므로 반드시 `1.0e-8` |
 | | `max_iter` | 300 | |
 | | `dangling` | `teleport` | dead end 처리 (`teleport` / `uniform`) |
-| `split` | `val_frac` / `random_seed` | 0.2 / 42 | B·C와 합의 후 확정 |
+| `split` | `val_frac` / `random_seed` | 0.3 / 42 | 팀 합의값. val spam이 부족하면 더 늘려 봄 |
 | `baselines` | `random_seed` | 42 | |
 | `domains` | `ppr_seed_domains` | `[ac.uk, gov.uk]` | B와 결정 |
 
@@ -105,6 +105,7 @@ t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가�
 
 - 분할 배열의 값은 **host id**이므로 `ds.labels[ds.train_idx]`처럼 바로 쓸 수 있다.
 - 세 분할 모두 undecided와 라벨 없는 호스트는 제외한다.
+- train·val은 SET1을 **사이트(등록 도메인) 단위**로 나눈다. `www1.example.co.uk`와 `www2.example.co.uk`처럼 같은 사이트의 호스트는 항상 같은 쪽에 들어가, seed와 같은 사이트의 호스트가 val에 섞이는 데이터 누수를 막는다 (공식 SET1/SET2 분할과 같은 방식).
 - 그래프는 전체를 그대로 쓴다. test 호스트도 그래프에 남아 있고, 라벨만 seed 선택·조정에 쓰지 않는다.
 
 ## 생성 시 검사
