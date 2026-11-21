@@ -1,6 +1,8 @@
 # Local reference documents
 file_spec.md
 GUIDE_A_graph_core.md
+GUIDE_B.md
+GUIDE_C_evaluation.md
 
 # Dataset and generated scores (keep directory placeholders)
 /data/raw/*
