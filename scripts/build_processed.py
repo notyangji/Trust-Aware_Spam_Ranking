@@ -25,11 +25,11 @@ from pathlib import Path
 
 import numpy as np
 import scipy.sparse as sp
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))          # `python scripts/...`로 실행해도 src를 import할 수 있게
 
+from src.config import DEFAULT_CONFIG, load_config  # noqa: E402
 from src.data import load_dataset, load_graph, load_hostnames, load_labels, make_split  # noqa: E402
 from src.graph import site_of  # noqa: E402
 
@@ -39,25 +39,6 @@ LABEL_ARCHIVES = ("webspam-uk2007-set1-1.0.tar.gz", "webspam-uk2007-set2-1.0.tar
 
 # 문헌·공식 안내의 값 (GUIDE 3.5절). 다르면 경고.
 EXPECTED = {"n": 114_529, "edges": 1_836_441, "labeled": 6_479}
-
-
-def load_config(path: Path) -> dict:
-    """설정 파일에서 paths.raw_dir, paths.processed_dir, split을 읽는다. 파일이나 키가 없으면 오류."""
-    if not path.exists():
-        raise FileNotFoundError(f"설정 파일 없음: {path}")
-    with open(path, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
-
-    def get(section: str, key: str):
-        value = (cfg.get(section) or {}).get(key)
-        if value is None:
-            raise ValueError(f"{path}에 설정 키 {section}.{key} 없음")
-        return value
-
-    return {"raw_dir": ROOT / get("paths", "raw_dir"),
-            "processed_dir": ROOT / get("paths", "processed_dir"),
-            "val_frac": float(get("split", "val_frac")),
-            "random_seed": int(get("split", "random_seed"))}
 
 
 def sha256_of(path: Path) -> str:
@@ -118,10 +99,12 @@ def report_split_change(out_dir: Path, new: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="raw → data/processed/")
-    parser.add_argument("--config", default="configs/default.yaml", help="설정 파일 경로")
+    parser.add_argument("--config", default=DEFAULT_CONFIG, help="설정 파일 경로")
     args = parser.parse_args()
-    cfg = load_config(ROOT / args.config)
-    raw, out = cfg["raw_dir"], cfg["processed_dir"]
+    config = load_config(args.config)
+    raw, out = config.path("raw_dir"), config.path("processed_dir")
+    cfg = {"val_frac": float(config.require("split", "val_frac")),
+           "random_seed": int(config.require("split", "random_seed"))}
 
     print("[읽기]")
     A, parse_stats = load_graph(raw / GRAPH_FILE, return_stats=True)

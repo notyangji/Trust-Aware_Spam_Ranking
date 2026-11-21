@@ -16,9 +16,8 @@ import pandas as pd
 import scipy.sparse as sp
 
 from src.common.schema import NONSPAM, SPAM, UNDECIDED, UNLABELED, Dataset, HostGraph
+from src.config import resolve_path
 from src.graph import site_of
-
-ROOT = Path(__file__).resolve().parents[1]
 
 LABEL_CODE = {"spam": SPAM, "nonspam": NONSPAM, "undecided": UNDECIDED}
 SET_CODE = {"SET1": 1, "SET2": 2}
@@ -168,14 +167,12 @@ def make_split(labels_df, n, val_frac, seed, hostnames):
     return np.sort(tr), np.sort(va), np.sort(te)
 
 
-def load_dataset(processed_dir="data/processed") -> Dataset:
+def load_dataset(processed_dir: str | Path = "data/processed") -> Dataset:
     """data/processed/ → Dataset. B·C는 이 함수만 호출한다.
 
     상대 경로는 프로젝트 루트 기준으로 해석한다 (notebooks/ 등 어디서 호출해도 같음).
     """
-    d = Path(processed_dir)
-    if not d.is_absolute():
-        d = ROOT / d
+    d = resolve_path(processed_dir)
     missing = [name for name in PROCESSED_FILES if not (d / name).exists()]
     if missing:
         raise FileNotFoundError(
