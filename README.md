@@ -9,8 +9,8 @@
 | `configs/default.yaml` | 모든 설정값 (경로, β, tol, 분할 비율, seed 등) | 작성 |
 | `scripts/download_data.py` | 원본 4개 다운로드, 라벨 압축 해제 | 작성 |
 | `src/common/schema.py` | 공통 자료형 `HostGraph`, `Dataset`, 라벨 상수 | 작성 |
-| `src/data.py` | raw parsing, train/val/test 분할, `load_dataset()` | 작성 예정 |
-| `src/graph.py` | 전이 행렬 `build_transition`, 도메인 판정 `domain_of` | 작성 |
+| `src/data.py` | raw parsing, train/val/test 분할(사이트 단위), `load_dataset()` | 작성 |
+| `src/graph.py` | 전이 행렬 `build_transition`, 도메인 판정 `domain_of`·`site_of` | 작성 |
 | `src/rank.py` | 공통 `power_iteration`, `pagerank` | 작성 |
 | `tests/test_rank.py` | 강의 예제·networkx 교차 확인·불변식·예외 테스트 | 작성 |
 | `scripts/build_processed.py` | raw → `data/processed/` | 작성 예정 |
@@ -28,15 +28,23 @@ import yaml
 cfg = yaml.safe_load(open("configs/default.yaml", encoding="utf-8"))
 ```
 
-아래 예시의 `ds`는 `src/data.py`의 `load_dataset()`(작성 예정)으로 받는 `Dataset`이다 (자료형은 아래 "공통 자료형" 참고).
+아래 예시의 `ds`는 `src/data.py`의 `load_dataset()`으로 받는 `Dataset`이다 (자료형은 아래 "공통 자료형" 참고). `data/processed/`가 있어야 하며, 이는 `scripts/build_processed.py`(작성 예정)로 만든다.
+
+```python
+from src.data import load_dataset
+
+ds = load_dataset()                          # data/processed/ → Dataset
+y_train = ds.labels[ds.train_idx]            # train host의 라벨 (1 = spam, 0 = nonspam)
+```
 
 **전이 행렬·도메인 (`src/graph.py`)**
 
 ```python
-from src.graph import build_transition, domain_of
+from src.graph import build_transition, domain_of, site_of
 
 M = build_transition(ds.graph.adjacency)     # column-stochastic 전이 행렬
 domain_of("www.ox.ac.uk")                    # "ac.uk"
+site_of("www1.example.co.uk")                # "example.co.uk"
 ```
 
 **PageRank·TrustRank (`src/rank.py`)**: `cfg["rank"]`를 그대로 넘기면 β, tol, max_iter, dangling이 적용된다.
@@ -71,7 +79,7 @@ t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가�
 
 # 공통 자료형 (`src/common/schema.py`)
 
-팀 전원이 같이 쓰는 자료형을 정의한다. `src/data.py`의 `load_dataset()`(작성 예정)이 `data/processed/`를 읽어 `Dataset`을 만들고, B·C는 이 객체만 받아 쓴다.
+팀 전원이 같이 쓰는 자료형을 정의한다. `src/data.py`의 `load_dataset()`이 `data/processed/`를 읽어 `Dataset`을 만들고, B·C는 이 객체만 받아 쓴다.
 
 ## 라벨 상수
 
@@ -105,7 +113,7 @@ t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가�
 
 - 분할 배열의 값은 **host id**이므로 `ds.labels[ds.train_idx]`처럼 바로 쓸 수 있다.
 - 세 분할 모두 undecided와 라벨 없는 호스트는 제외한다.
-- train·val은 SET1을 **사이트(등록 도메인) 단위**로 나눈다. `www1.example.co.uk`와 `www2.example.co.uk`처럼 같은 사이트의 호스트는 항상 같은 쪽에 들어가, seed와 같은 사이트의 호스트가 val에 섞이는 데이터 누수를 막는다 (공식 SET1/SET2 분할과 같은 방식).
+- train·val은 SET1을 **사이트(등록 도메인, `site_of`) 단위**로 나눈다. `www1.example.co.uk`와 `www2.example.co.uk`처럼 같은 사이트의 호스트는 항상 같은 쪽에 들어가, seed와 같은 사이트의 호스트가 val에 섞이는 데이터 누수를 막는다 (공식 SET1/SET2 분할과 같은 방식).
 - 그래프는 전체를 그대로 쓴다. test 호스트도 그래프에 남아 있고, 라벨만 seed 선택·조정에 쓰지 않는다.
 
 ## 생성 시 검사
@@ -143,6 +151,7 @@ dom   = [domain_of(h) for h in ds.graph.hostnames]   # "ac.uk", "gov.uk", ..., �
 
 - `build_transition`은 원본 `A`를 바꾸지 않는다 (내부에서 복사).
 - `domain_of`는 대소문자, 끝의 `.`, 포트(`:8080`)를 무시한다. `UK_SLD`(ac, co, gov, org, ltd, plc, me, net, nhs, police, sch, mod, nic) 밖은 `"other"`이며, 실제 데이터에서 `other`는 28개(`bl.uk`, `parliament.uk` 등)뿐이다.
+- `site_of`는 사이트(등록 도메인)를 돌려준다. `UK_SLD` 아래는 3단계까지(`www1.example.co.uk` → `example.co.uk`), 그 밖은 2단계까지(`molcat1.bl.uk` → `bl.uk`). train·val 분할과 사이트별 집계에 쓴다.
 
 ## `power_iteration`
 
