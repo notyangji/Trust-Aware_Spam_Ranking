@@ -34,15 +34,7 @@ domain_of("www.ox.ac.uk")                    # "ac.uk"
 site_of("www1.example.co.uk")                # "example.co.uk"
 ```
 
-**Seed 설정·선정·개인화 벡터 (`src/seeds.py`)**
-
-`load_config()`로 읽은 설정을 `validate_seed_config()`에 전달한다. 설정은 `topic`과 `trusted`를 담은 중첩 딕셔너리 형태다. 검사에 통과하면 `None`을 반환하고, 잘못된 설정이면 `ValueError`가 발생한다.
-
-`select_topic_seeds()`는 지정한 도메인에서 고른 원본 호스트 ID를 오름차순 `int64` 배열로 반환한다. `strategy="all"`은 후보 전체를 고른다. `strategy="random"`은 `random_seed`로 후보를 섞고 앞에서 `n_seeds`개를 고른다. 후보와 난수값이 같으면 개수를 늘려도 기존 seed가 포함된다. 요청한 개수만큼 후보가 없으면 `ValueError`가 발생한다.
-
-`select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0)`는 `Dataset`의 학습용 호스트에서 seed를 중복 없이 골라 오름차순 `int64` 배열로 반환한다. `n_seeds`는 전체 개수(양의 정수), `random_seed`는 추첨을 재현할 0 이상의 정수다. `contamination_rate`는 전체 seed 중 SPAM 비율(0~1)이다. 예를 들어 100개에 `0.1`을 지정하면 학습용 NONSPAM 90개와 SPAM 10개를 고른다. SPAM 개수는 반올림하고 정확히 `.5`이면 올린다. 어느 후보군이든 요청한 개수보다 적으면 `ValueError`가 발생한다.
-
-`validate_seed_ids(seed_ids, n_nodes)`는 전체 호스트 수와 ID 목록을 받아 비어 있거나 중복된 목록, 정수가 아닌 ID, 범위 밖 ID를 검사한다. 통과하면 입력 순서대로 1차원 `int64` 배열을 돌려준다. 예를 들어 `validate_seed_ids([3, 1], n_nodes=5)`의 결과는 `[3, 1]`이다. `make_personalization()`은 이 검사를 내부에서 호출하고, seed에 같은 비중을 주는 길이 N의 `float64` 배열을 만든다.
+**Seed 선정·개인화 (`src/seeds.py`)**
 
 ```python
 from src.seeds import (
@@ -52,13 +44,15 @@ from src.seeds import (
     validate_seed_config,
 )
 
+# Seed 전용 설정을 읽고 선택 방식과 값이 유효한지 확인한다.
 seed_cfg = load_config("configs/seeds.yaml")
 validate_seed_config(seed_cfg)
 
+# PPR은 공통 설정에 지정된 도메인에 속한 호스트를 후보로 삼는다.
 domains = cfg.require("domains", "ppr_seed_domains")
 topic_ids = select_topic_seeds(ds.graph.hostnames, domains, **seed_cfg["topic"])
-topic_s = make_personalization(ds.graph.n, topic_ids)
 
+# TrustRank는 학습용 nonspam에서 고르고, 혼입률에 따라 학습용 spam을 섞는다.
 trusted = seed_cfg["trusted"]
 trusted_ids = select_trusted_seeds(
     ds,
@@ -66,8 +60,14 @@ trusted_ids = select_trusted_seeds(
     random_seed=trusted["random_seed"],
     contamination_rate=trusted["contamination_rate"],
 )
+
+# 선택한 호스트에 같은 비중을 주고 나머지는 0으로 채운다.
+# 각 벡터는 power_iteration()의 teleport 인자로 넘긴다.
+topic_s = make_personalization(ds.graph.n, topic_ids)
 trusted_s = make_personalization(ds.graph.n, trusted_ids)
 ```
+
+인자와 반환값은 [Seed 선정·개인화](#seed-선정개인화)를 참고한다.
 
 **PageRank·TrustRank (`src/rank.py`)**: `cfg["rank"]`를 그대로 넘기면 β, tol, max_iter, dangling이 적용된다.
 
@@ -169,6 +169,54 @@ risk = -scores if meta["higher_is_spam"] is False else scores   # 클수록 spam
 | `Dataset` | `labels`·`in_set` 길이 = N, 분할끼리 겹치지 않음, train·val은 SET1만, test는 SET2만, 분할에 undecided·라벨 없음 미포함 |
 
 - `frozen=True`는 배열 안의 값 수정(`ds.labels[0] = 1`)까지 막지는 않으므로, 받은 배열을 직접 고치지 않는다.
+
+## Seed 선정·개인화
+
+### `validate_seed_config`
+
+- `seed_cfg`는 `topic`과 `trusted`를 담은 중첩 딕셔너리 형태의 설정 객체다.
+- 검사에 통과하면 `None`을 반환하고, 잘못된 설정이면 `ValueError`가 발생한다.
+
+### `select_topic_seeds`
+
+| 인자 | 기본값 | 내용 |
+|---|---|---|
+| `hostnames` | 필수 | 원본 호스트 ID 순서의 주소 목록 |
+| `domains` | 필수 | 선택할 도메인 목록. 예를 들어 `["ac.uk", "gov.uk"]` |
+| `strategy` | `"all"` | `"all"`은 후보 전체, `"random"`은 무작위로 일부를 선택 |
+| `n_seeds` | `None` | `"random"`에서 선택할 개수. 양의 정수 |
+| `random_seed` | `None` | `"random"`에서 추첨을 재현할 0 이상의 정수 |
+
+- 원본 호스트 ID를 오름차순 `int64` 배열로 반환한다. 후보가 없거나 요청한 개수보다 적으면 `ValueError`가 발생한다.
+- `"all"`에서는 `n_seeds`와 `random_seed`를 `None`으로 둔다. `"random"`에서는 두 값이 필요하다.
+- 같은 후보와 난수값으로 무작위 선정 개수를 늘리면 기존 seed가 포함된다.
+
+### `select_trusted_seeds`
+
+| 인자 | 기본값 | 내용 |
+|---|---|---|
+| `ds` | 필수 | `load_dataset()`으로 읽은 `Dataset`. `train_idx`에 해당하는 라벨을 사용 |
+| `n_seeds` | 필수 | 선택할 seed의 총개수. 양의 정수 |
+| `random_seed` | 필수 | 추첨을 재현할 0 이상의 정수 |
+| `contamination_rate` | `0.0` | 전체 seed 중 SPAM의 비율. 0~1 사이의 수 |
+
+- 학습용 호스트에서 중복 없이 고른 원본 ID를 오름차순 `int64` 배열로 반환한다. 어느 후보군이든 요청한 개수보다 적으면 `ValueError`가 발생한다.
+- 총 100개에 혼입률 `0.1`을 지정하면 학습용 NONSPAM 90개와 SPAM 10개를 고른다. SPAM 개수는 반올림하고 정확히 `.5`이면 올린다.
+
+### `validate_seed_ids`
+
+```python
+ids = validate_seed_ids([3, 1], n_nodes=5)  # array([3, 1])
+```
+
+- `seed_ids`는 비어 있지 않은 1차원 정수 ID 목록이고, `n_nodes`는 전체 호스트 수다.
+- ID의 유효 범위는 `0 <= ID < n_nodes`다. 범위 밖 ID, 중복 ID, 정수가 아닌 ID는 `ValueError`가 발생한다.
+- 통과하면 입력 순서대로 1차원 `int64` 배열을 반환한다.
+
+### `make_personalization`
+
+- `n_nodes`로 전체 호스트 수를, `seed_ids`로 선택한 원본 ID 목록을 받는다. ID 검사는 내부에서 `validate_seed_ids()`를 호출해 수행한다.
+- 선택한 seed에 같은 비중을 주고 나머지 위치는 0으로 채운다. 반환값은 합이 1인 길이 N의 `float64` 배열이며, `power_iteration()`의 `teleport`로 전달한다.
 
 ## 그래프·랭킹
 
