@@ -55,6 +55,7 @@ team_project/
 │
 ├── results/
 │   ├── scores/                    # <method>_<config>.npy, 길이 N float64
+│   │                              # 점수별로 같은 이름의 .json에 메타데이터를 함께 저장
 │   ├── metrics/                   # [C] e1.csv … e6.csv (val), final_test.csv (test) (git에 포함)
 │   └── figures/                   # EDA 그림, [C] 결과 그림 (git에 포함)
 │
