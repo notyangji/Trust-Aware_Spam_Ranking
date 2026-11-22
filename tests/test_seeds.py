@@ -1,5 +1,6 @@
 """작은 가상 데이터로 seed 선정과 개인화 벡터를 확인한다."""
 
+import json
 from dataclasses import replace
 
 import numpy as np
@@ -7,7 +8,13 @@ import pytest
 from scipy.sparse import csr_matrix
 
 from src.common.schema import NONSPAM, SPAM, Dataset, HostGraph
-from src.seeds import make_personalization, select_topic_seeds, select_trusted_seeds, validate_seed_ids
+from src.seeds import (
+    make_personalization,
+    select_topic_seeds,
+    select_trusted_seeds,
+    validate_seed_config,
+    validate_seed_ids,
+)
 
 
 HOSTNAMES = [
@@ -33,12 +40,30 @@ def dataset():
     )
 
 
+@pytest.mark.parametrize("unknown_key", ["n_seed", "return_info"])
+def test_seed_config_rejects_unknown_topic_options(unknown_key):
+    # Topic 설정의 오타와 호출 전용 옵션을 선정 함수에 넘기기 전에 감지한다.
+    seed_cfg = {
+        "topic": {"strategy": "random", "n_seeds": 2, "random_seed": 42, unknown_key: True},
+        "trusted": {"strategy": "random", "n_seeds": 2, "random_seed": 42, "contamination_rate": 0.0},
+    }
+
+    with pytest.raises(ValueError, match=rf"topic.*{unknown_key}"):
+        validate_seed_config(seed_cfg)
+
+
 def test_topic_all_returns_original_host_ids():
     # 지정한 도메인의 호스트를 모두 골라 원본 ID를 반환하는지 확인한다.
     seed_ids = select_topic_seeds(HOSTNAMES, ["ac.uk", "gov.uk"])
 
     np.testing.assert_array_equal(seed_ids, [1, 2, 3, 4])
     assert seed_ids.dtype == np.int64
+
+
+def test_topic_rejects_unknown_domain_even_with_valid_candidates():
+    # 정상 도메인의 후보가 있어도 다른 도메인의 오타를 알려준다.
+    with pytest.raises(ValueError, match=r"govv\.uk"):
+        select_topic_seeds(HOSTNAMES, ["ac.uk", "govv.uk"], return_info=True)
 
 
 def test_topic_random_is_reproducible_and_keeps_existing_seeds():
@@ -60,6 +85,23 @@ def test_topic_random_rejects_request_larger_than_pool():
     # Topic 후보보다 많이 요청하면 ValueError가 발생하는지 확인한다.
     with pytest.raises(ValueError, match="topic seed 후보"):
         select_topic_seeds(HOSTNAMES, ["gov.uk"], strategy="random", n_seeds=2, random_seed=42)
+
+
+@pytest.mark.parametrize("options", [{}, {"strategy": "random", "n_seeds": 2, "random_seed": 42}])
+def test_topic_seed_info_matches_selection(options):
+    # 기록을 요청해도 뽑힌 ID가 같고, 후보 수와 선정 조건을 JSON으로 읽어올 수 있다.
+    ids, info = select_topic_seeds(HOSTNAMES, ["ac.uk"], return_info=True, **options)
+
+    np.testing.assert_array_equal(ids, select_topic_seeds(HOSTNAMES, ["ac.uk"], **options))
+    assert info["kind"] == "topic"
+    assert info["strategy"] == options.get("strategy", "all")
+    assert info["domains"] == ["ac.uk"]
+    assert info["candidate_count"] == 3
+    assert info["n_requested"] == options.get("n_seeds")
+    assert info["random_seed"] == options.get("random_seed")
+    assert info["n_selected"] == ids.size
+    assert info["seed_ids"] == ids.tolist()
+    assert json.loads(json.dumps(info)) == info
 
 
 def test_trusted_seeds_use_only_training_nonspam(dataset):
@@ -84,6 +126,25 @@ def test_trusted_seeds_round_half_up_and_keep_total_count(dataset):
     assert mixed.size == 2
     np.testing.assert_array_equal(mixed[dataset.labels[mixed] == NONSPAM], clean)
     np.testing.assert_array_equal(mixed[dataset.labels[mixed] == SPAM], [2])
+
+
+def test_trusted_seed_info_records_requested_and_actual_contamination(dataset):
+    # 2개의 25%를 요청하면 반올림으로 1개가 섞여 실제 혼입률은 50%가 된다.
+    options = {"n_seeds": 2, "random_seed": 42, "contamination_rate": 0.25}
+    ids, info = select_trusted_seeds(dataset, return_info=True, **options)
+
+    np.testing.assert_array_equal(ids, select_trusted_seeds(dataset, **options))
+    assert info["kind"] == "trusted"
+    assert info["strategy"] == "random"
+    assert info["candidate_count"] == 3
+    assert info["candidate_counts"] == {"nonspam": 2, "spam": 1}
+    assert info["n_requested"] == info["n_selected"] == ids.size == 2
+    assert info["random_seed"] == 42
+    assert info["seed_ids"] == ids.tolist()
+    assert info["selected_counts"] == {"nonspam": 1, "spam": 1}
+    assert info["requested_contamination_rate"] == 0.25
+    assert info["actual_contamination_rate"] == 0.5
+    assert json.loads(json.dumps(info)) == info
 
 
 def test_trusted_seeds_exclude_validation_and_test_spam(dataset):

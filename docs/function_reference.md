@@ -50,15 +50,18 @@ validate_seed_config(seed_cfg)
 
 # PPR은 공통 설정에 지정된 도메인에 속한 호스트를 후보로 삼는다.
 domains = cfg.require("domains", "ppr_seed_domains")
-topic_ids = select_topic_seeds(ds.graph.hostnames, domains, **seed_cfg["topic"])
+topic_ids, topic_info = select_topic_seeds(
+    ds.graph.hostnames, domains, return_info=True, **seed_cfg["topic"]
+)
 
 # TrustRank는 학습용 nonspam에서 고르고, 혼입률에 따라 학습용 spam을 섞는다.
 trusted = seed_cfg["trusted"]
-trusted_ids = select_trusted_seeds(
+trusted_ids, trusted_info = select_trusted_seeds(
     ds,
     n_seeds=trusted["n_seeds"],
     random_seed=trusted["random_seed"],
     contamination_rate=trusted["contamination_rate"],
+    return_info=True,
 )
 
 # 선택한 호스트에 같은 비중을 주고 나머지는 0으로 채운다.
@@ -186,10 +189,12 @@ risk = -scores if meta["higher_is_spam"] is False else scores   # 클수록 spam
 | `strategy` | `"all"` | `"all"`은 후보 전체, `"random"`은 무작위로 일부를 선택 |
 | `n_seeds` | `None` | `"random"`에서 선택할 개수. 양의 정수 |
 | `random_seed` | `None` | `"random"`에서 추첨을 재현할 0 이상의 정수 |
+| `return_info` | `False` | `True`이면 ID 배열과 선정 기록을 함께 반환 |
 
 - 원본 호스트 ID를 오름차순 `int64` 배열로 반환한다. 후보가 없거나 요청한 개수보다 적으면 `ValueError`가 발생한다.
 - `"all"`에서는 `n_seeds`와 `random_seed`를 `None`으로 둔다. `"random"`에서는 두 값이 필요하다.
 - 같은 후보와 난수값으로 무작위 선정 개수를 늘리면 기존 seed가 포함된다.
+- 선정 기록에는 `kind`, `strategy`, `domains`, `random_seed`, `candidate_count`, `n_requested`, `n_selected`, `seed_ids`가 들어 있다. `"all"`에서는 `n_requested`와 `random_seed`가 `None`이다. 기록의 `seed_ids`는 JSON에 저장할 수 있는 정수 목록이다.
 
 ### `select_trusted_seeds`
 
@@ -199,9 +204,12 @@ risk = -scores if meta["higher_is_spam"] is False else scores   # 클수록 spam
 | `n_seeds` | 필수 | 선택할 seed의 총개수. 양의 정수 |
 | `random_seed` | 필수 | 추첨을 재현할 0 이상의 정수 |
 | `contamination_rate` | `0.0` | 전체 seed 중 SPAM의 비율. 0~1 사이의 수 |
+| `return_info` | `False` | `True`이면 ID 배열과 선정 기록을 함께 반환 |
 
 - 학습용 호스트에서 중복 없이 고른 원본 ID를 오름차순 `int64` 배열로 반환한다. 어느 후보군이든 요청한 개수보다 적으면 `ValueError`가 발생한다.
 - 총 100개에 혼입률 `0.1`을 지정하면 학습용 NONSPAM 90개와 SPAM 10개를 고른다. SPAM 개수는 반올림하고 정확히 `.5`이면 올린다.
+- 선정 기록에는 전략, 난수값, 전체 후보 수와 요청·선정 개수, 실제 ID 목록이 들어 있다. `candidate_counts`와 `selected_counts`는 NONSPAM·SPAM별 개수를 담는다.
+- `requested_contamination_rate`와 `actual_contamination_rate`는 각각 설정값과 실제 SPAM 비율이다. 예를 들어 2개에 `0.25`를 요청하면 SPAM 1개를 골라 실제 비율은 `0.5`가 된다.
 
 ### `validate_seed_ids`
 

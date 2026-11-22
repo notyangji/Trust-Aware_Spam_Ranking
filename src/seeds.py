@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import numpy as np
 
 from src.common.schema import NONSPAM, SPAM
-from src.graph import domain_of
+from src.graph import UK_SLD, domain_of
 
 
 def validate_seed_ids(seed_ids, n_nodes):
@@ -78,6 +78,11 @@ def validate_seed_config(seed_cfg):
 
     topic = seed_cfg["topic"]
     trusted = seed_cfg["trusted"]
+    unknown_topic_keys = set(topic) - {"strategy", "n_seeds", "random_seed"}
+    if unknown_topic_keys:
+        keys = ", ".join(sorted(map(repr, unknown_topic_keys)))
+        raise ValueError(f"topic에 지원하지 않는 설정 키가 있습니다: {keys}")
+
     if topic.get("strategy") not in ("all", "random"):
         raise ValueError("topic.strategy는 all 또는 random이어야 합니다.")
     if trusted.get("strategy") != "random":
@@ -94,7 +99,9 @@ def validate_seed_config(seed_cfg):
     _validate_contamination_rate(trusted.get("contamination_rate"))
 
 
-def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, random_seed=None):
+def select_topic_seeds(
+    hostnames, domains, *, strategy="all", n_seeds=None, random_seed=None, return_info=False
+):
     """지정한 도메인에서 topic seed를 고른다.
 
     매개변수
@@ -103,10 +110,11 @@ def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, rand
     - strategy (str, 기본값 "all") — "all"은 후보 전체, "random"은 무작위로 일부를 고른다.
     - n_seeds (int | None, 기본값 None) — "random"에서 고를 개수. 양의 정수를 지정한다.
     - random_seed (int | None, 기본값 None) — "random"의 추첨 순서를 재현하는 0 이상의 정수.
+    - return_info (bool, 기본값 False) — True이면 ID 배열과 선정 기록을 함께 반환한다.
 
     strategy가 "all"이면 n_seeds와 random_seed는 기본값 None으로 둔다.
     선택한 원본 호스트 ID를 오름차순의 1차원 int64 배열로 반환한다.
-    후보가 없거나 요청한 개수보다 적으면 ValueError를 낸다.
+    지원하지 않는 도메인이 있거나 후보 수가 부족하면 ValueError를 낸다.
     """
     if strategy not in ("all", "random"):
         raise ValueError("topic.strategy는 all 또는 random이어야 합니다.")
@@ -116,6 +124,12 @@ def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, rand
         raise ValueError("topic.strategy가 all이면 n_seeds와 random_seed를 지정하지 않습니다.")
 
     wanted_domains = set(domains)
+    supported_domains = {f"{sld}.uk" for sld in UK_SLD} | {"other"}
+    unsupported_domains = wanted_domains - supported_domains
+    if unsupported_domains:
+        names = ", ".join(sorted(map(repr, unsupported_domains)))
+        raise ValueError(f"지원하지 않는 topic 도메인이 있습니다: {names}")
+
     seed_ids = []
     for host_id, hostname in enumerate(hostnames):
         if domain_of(hostname) in wanted_domains:
@@ -126,18 +140,33 @@ def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, rand
 
     candidates = np.array(seed_ids, dtype=np.int64)
     if strategy == "all":
-        return candidates
+        selected_ids = candidates
+    else:
+        assert n_seeds is not None
+        if n_seeds > candidates.size:
+            raise ValueError(f"topic seed 후보 {candidates.size}개에서 {n_seeds}개를 고를 수 없습니다.")
 
-    assert n_seeds is not None
-    if n_seeds > candidates.size:
-        raise ValueError(f"topic seed 후보 {candidates.size}개에서 {n_seeds}개를 고를 수 없습니다.")
+        rng = np.random.default_rng(random_seed)
+        shuffled = rng.permutation(candidates)
+        selected_ids = np.sort(shuffled[:n_seeds])
 
-    rng = np.random.default_rng(random_seed)
-    shuffled = rng.permutation(candidates)
-    return np.sort(shuffled[:n_seeds])
+    if not return_info:
+        return selected_ids
+
+    info = {
+        "kind": "topic",
+        "strategy": strategy,
+        "domains": sorted(wanted_domains),
+        "random_seed": random_seed,
+        "candidate_count": int(candidates.size),
+        "n_requested": n_seeds,
+        "n_selected": int(selected_ids.size),
+        "seed_ids": selected_ids.tolist(),
+    }
+    return selected_ids, info
 
 
-def select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0):
+def select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0, return_info=False):
     """학습용 호스트에서 TrustRank seed를 고르고 지정한 비율만큼 SPAM을 섞는다.
 
     매개변수
@@ -145,6 +174,7 @@ def select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0):
     - n_seeds (int) — 고를 seed의 총개수. 1 이상의 정수다.
     - random_seed (int) — 추첨 순서를 재현하는 0 이상의 정수.
     - contamination_rate (int | float, 기본값 0.0) — 전체 seed 중 SPAM의 비율. 0~1이다.
+    - return_info (bool, 기본값 False) — True이면 ID 배열과 요청·실제 혼입률 등을 함께 반환한다.
 
     SPAM 개수는 n_seeds에 혼입률을 곱해 반올림한다. 정확히 .5이면 올린다.
     나머지는 NONSPAM에서 고르며, 어느 후보군이든 요청한 수보다 적으면 ValueError를 낸다.
@@ -176,4 +206,22 @@ def select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0):
     # 후보군마다 전체 순서를 먼저 정해, 뽑는 개수를 바꿔도 추첨 순서를 유지한다.
     nonspam_ids = rng.permutation(nonspam_candidates)[:n_nonspam]
     spam_ids = rng.permutation(spam_candidates)[:n_spam]
-    return np.sort(np.concatenate((nonspam_ids, spam_ids)))
+    selected_ids = np.sort(np.concatenate((nonspam_ids, spam_ids)))
+
+    if not return_info:
+        return selected_ids
+
+    info = {
+        "kind": "trusted",
+        "strategy": "random",
+        "random_seed": random_seed,
+        "candidate_count": int(nonspam_candidates.size + spam_candidates.size),
+        "candidate_counts": {"nonspam": int(nonspam_candidates.size), "spam": int(spam_candidates.size)},
+        "n_requested": n_seeds,
+        "n_selected": int(selected_ids.size),
+        "selected_counts": {"nonspam": n_nonspam, "spam": n_spam},
+        "requested_contamination_rate": float(contamination_rate),
+        "actual_contamination_rate": n_spam / selected_ids.size,
+        "seed_ids": selected_ids.tolist(),
+    }
+    return selected_ids, info
