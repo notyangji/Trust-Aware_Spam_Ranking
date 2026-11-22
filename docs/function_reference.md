@@ -40,31 +40,44 @@ site_of("www1.example.co.uk")                # "example.co.uk"
 
 `select_topic_seeds()`는 지정한 도메인에서 고른 원본 호스트 ID를 오름차순 `int64` 배열로 반환한다. `strategy="all"`은 후보 전체를 고른다. `strategy="random"`은 `random_seed`로 후보를 섞고 앞에서 `n_seeds`개를 고른다. 후보와 난수값이 같으면 개수를 늘려도 기존 seed가 포함된다. 요청한 개수만큼 후보가 없으면 `ValueError`가 발생한다.
 
-`make_personalization()`은 전체 호스트 수와 중복 없는 정수 ID 목록을 받아, seed에 같은 비중을 주는 길이 N의 `float64` 배열을 만든다.
+`select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0)`는 `Dataset`의 학습용 호스트에서 seed를 중복 없이 골라 오름차순 `int64` 배열로 반환한다. `n_seeds`는 전체 개수(양의 정수), `random_seed`는 추첨을 재현할 0 이상의 정수다. `contamination_rate`는 전체 seed 중 SPAM 비율(0~1)이다. 예를 들어 100개에 `0.1`을 지정하면 학습용 NONSPAM 90개와 SPAM 10개를 고른다. SPAM 개수는 반올림하고 정확히 `.5`이면 올린다. 어느 후보군이든 요청한 개수보다 적으면 `ValueError`가 발생한다.
+
+`validate_seed_ids(seed_ids, n_nodes)`는 전체 호스트 수와 ID 목록을 받아 비어 있거나 중복된 목록, 정수가 아닌 ID, 범위 밖 ID를 검사한다. 통과하면 입력 순서대로 1차원 `int64` 배열을 돌려준다. 예를 들어 `validate_seed_ids([3, 1], n_nodes=5)`의 결과는 `[3, 1]`이다. `make_personalization()`은 이 검사를 내부에서 호출하고, seed에 같은 비중을 주는 길이 N의 `float64` 배열을 만든다.
 
 ```python
-from src.seeds import make_personalization, select_topic_seeds, validate_seed_config
+from src.seeds import (
+    make_personalization,
+    select_topic_seeds,
+    select_trusted_seeds,
+    validate_seed_config,
+)
 
 seed_cfg = load_config("configs/seeds.yaml")
 validate_seed_config(seed_cfg)
 
 domains = cfg.require("domains", "ppr_seed_domains")
-seed_ids = select_topic_seeds(ds.graph.hostnames, domains, **seed_cfg["topic"])
-s = make_personalization(ds.graph.n, seed_ids)  # power_iteration()의 teleport에 전달
+topic_ids = select_topic_seeds(ds.graph.hostnames, domains, **seed_cfg["topic"])
+topic_s = make_personalization(ds.graph.n, topic_ids)
+
+trusted = seed_cfg["trusted"]
+trusted_ids = select_trusted_seeds(
+    ds,
+    n_seeds=trusted["n_seeds"],
+    random_seed=trusted["random_seed"],
+    contamination_rate=trusted["contamination_rate"],
+)
+trusted_s = make_personalization(ds.graph.n, trusted_ids)
 ```
 
 **PageRank·TrustRank (`src/rank.py`)**: `cfg["rank"]`를 그대로 넘기면 β, tol, max_iter, dangling이 적용된다.
 
 ```python
-from src.common.schema import NONSPAM
 from src.rank import pagerank, power_iteration
 
 r = pagerank(M, **cfg["rank"])               # PageRank
 top10 = [ds.graph.hostnames[i] for i in np.argsort(-r)[:10]]
 
-s = np.zeros(ds.graph.n)                     # TrustRank: train의 nonspam host를 seed로
-s[ds.train_idx[ds.labels[ds.train_idx] == NONSPAM]] = 1.0
-t = power_iteration(M, teleport=s, **cfg["rank"])   # seed에서 도달 불가능한 host는 0
+t = power_iteration(M, teleport=trusted_s, **cfg["rank"])
 ```
 
 **Baseline (`src/baselines.py`)**
