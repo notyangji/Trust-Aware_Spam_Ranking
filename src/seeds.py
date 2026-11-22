@@ -1,21 +1,18 @@
 from collections.abc import Mapping
+from decimal import Decimal, ROUND_HALF_UP
 
 import numpy as np
 
-from src.common.schema import NONSPAM
+from src.common.schema import NONSPAM, SPAM
 from src.graph import domain_of
 
 
-def make_personalization(n_nodes, seed_ids):
-    """선택한 seed에 같은 비중을 주는 개인화 벡터를 만든다.
-    n_nodes: 호스트 수, seed_ids: seed 호스트 ID 목록
-    return: 길이가 n_nodes이고 합이 1인 float64 배열
+def validate_seed_ids(seed_ids, n_nodes):
+    """호스트 ID를 검사하고 원래 순서의 1차원 int64 배열로 반환한다.
 
-    n_nodes가 양의 정수인지, seed_ids가 비어 있지 않은 1차원 정수 목록인지 검사한다.
-    범위 밖 ID와 중복 ID는 허용하지 않는다.
+    seed_ids는 비어 있지 않은 정수 ID 목록이고 n_nodes는 전체 호스트 수다.
+    호스트 수가 양의 정수가 아니거나 ID에 중복 또는 범위 밖 값이 있으면 ValueError를 낸다.
     """
-
-    # 오류 체크
     if (isinstance(n_nodes, (bool, np.bool_))
             or not isinstance(n_nodes, (int, np.integer))
             or n_nodes <= 0):
@@ -36,8 +33,16 @@ def make_personalization(n_nodes, seed_ids):
     if np.unique(seed_ids).size != len(seed_ids):
         raise ValueError("seed ID가 중복되어 있습니다.")
 
-    # 실제 계산
-    seed_ids = np.asarray(seed_ids, dtype=np.int64)
+    return np.asarray(seed_ids, dtype=np.int64)
+
+
+def make_personalization(n_nodes, seed_ids):
+    """선택한 seed에 같은 비중을 주는 개인화 벡터를 만든다.
+
+    n_nodes는 전체 호스트 수이고 seed_ids는 검증할 호스트 ID 목록이다.
+    길이가 n_nodes이고 합이 1인 float64 배열을 반환한다.
+    """
+    seed_ids = validate_seed_ids(seed_ids, n_nodes)
     s = np.zeros(n_nodes, dtype=np.float64)
     s[seed_ids] = 1.0 / len(seed_ids)
     return s
@@ -49,6 +54,11 @@ def _validate_random_seed_options(name, n_seeds, random_seed):
         raise ValueError(f"{name}.n_seeds는 0보다 큰 정수여야 합니다.")
     if type(random_seed) is not int or random_seed < 0:
         raise ValueError(f"{name}.random_seed는 0 이상의 정수여야 합니다.")
+
+
+def _validate_contamination_rate(rate):
+    if type(rate) not in (int, float) or not 0 <= rate <= 1:
+        raise ValueError("trusted.contamination_rate는 0~1 사이의 수여야 합니다.")
 
 
 def validate_seed_config(seed_cfg):
@@ -81,9 +91,7 @@ def validate_seed_config(seed_cfg):
         if settings["strategy"] == "random":
             _validate_random_seed_options(name, settings.get("n_seeds"), settings.get("random_seed"))
 
-    rate = trusted.get("contamination_rate")
-    if type(rate) not in (int, float) or not 0 <= rate <= 1:
-        raise ValueError("trusted.contamination_rate는 0~1 사이의 수여야 합니다.")
+    _validate_contamination_rate(trusted.get("contamination_rate"))
 
 
 def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, random_seed=None):
@@ -120,6 +128,7 @@ def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, rand
     if strategy == "all":
         return candidates
 
+    assert n_seeds is not None
     if n_seeds > candidates.size:
         raise ValueError(f"topic seed 후보 {candidates.size}개에서 {n_seeds}개를 고를 수 없습니다.")
 
@@ -128,28 +137,43 @@ def select_topic_seeds(hostnames, domains, *, strategy="all", n_seeds=None, rand
     return np.sort(shuffled[:n_seeds])
 
 
-def select_trusted_seeds(ds, *, n_seeds, random_seed):
-    """학습용 NONSPAM 호스트에서 TrustRank seed를 중복 없이 고른다.
+def select_trusted_seeds(ds, *, n_seeds, random_seed, contamination_rate=0.0):
+    """학습용 호스트에서 TrustRank seed를 고르고 지정한 비율만큼 SPAM을 섞는다.
 
     매개변수
     - ds (Dataset) — A의 load_dataset()으로 읽은 데이터. train_idx에 해당하는 라벨을 읽는다.
-    - n_seeds (int) — 고를 seed 수. 1 이상이고 후보 수 이하여야 한다.
+    - n_seeds (int) — 고를 seed의 총개수. 1 이상의 정수다.
     - random_seed (int) — 추첨 순서를 재현하는 0 이상의 정수.
+    - contamination_rate (int | float, 기본값 0.0) — 전체 seed 중 SPAM의 비율. 0~1이다.
 
+    SPAM 개수는 n_seeds에 혼입률을 곱해 반올림한다. 정확히 .5이면 올린다.
+    나머지는 NONSPAM에서 고르며, 어느 후보군이든 요청한 수보다 적으면 ValueError를 낸다.
     원본 호스트 ID를 오름차순의 1차원 int64 배열로 반환한다.
     """
     _validate_random_seed_options("trusted", n_seeds, random_seed)
+    _validate_contamination_rate(contamination_rate)
 
     train_ids = ds.train_idx
     if np.any((train_ids < 0) | (train_ids >= ds.graph.n)):
         raise ValueError("train_idx에 범위 밖 호스트 ID가 있습니다.")
 
-    # 학습용 ID의 라벨만 읽고, 후보 ID는 정렬해 중복을 제거한다.
     train_labels = ds.labels[train_ids]
-    candidates = np.unique(train_ids[train_labels == NONSPAM])
-    if n_seeds > candidates.size:
-        raise ValueError(f"trusted seed 후보 {candidates.size}개에서 {n_seeds}개를 고를 수 없습니다.")
+    nonspam_candidates = np.unique(train_ids[train_labels == NONSPAM])
+    spam_candidates = np.unique(train_ids[train_labels == SPAM])
+
+    requested_spam = Decimal(n_seeds) * Decimal(str(contamination_rate))
+    n_spam = int(requested_spam.to_integral_value(rounding=ROUND_HALF_UP))
+    n_nonspam = n_seeds - n_spam
+
+    if n_nonspam > nonspam_candidates.size:
+        raise ValueError(f"trusted seed 후보 중 NONSPAM {nonspam_candidates.size}개에서 "
+                         f"{n_nonspam}개를 고를 수 없습니다.")
+    if n_spam > spam_candidates.size:
+        raise ValueError(f"trusted seed 후보 중 SPAM {spam_candidates.size}개에서 "
+                         f"{n_spam}개를 고를 수 없습니다.")
 
     rng = np.random.default_rng(random_seed)
-    shuffled = rng.permutation(candidates)
-    return np.sort(shuffled[:n_seeds])
+    # 후보군마다 전체 순서를 먼저 정해, 뽑는 개수를 바꿔도 추첨 순서를 유지한다.
+    nonspam_ids = rng.permutation(nonspam_candidates)[:n_nonspam]
+    spam_ids = rng.permutation(spam_candidates)[:n_spam]
+    return np.sort(np.concatenate((nonspam_ids, spam_ids)))
