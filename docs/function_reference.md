@@ -34,6 +34,23 @@ domain_of("www.ox.ac.uk")                    # "ac.uk"
 site_of("www1.example.co.uk")                # "example.co.uk"
 ```
 
+**Seed 설정·선정·개인화 벡터 (`src/seeds.py`)**
+
+`load_config()`로 읽은 설정을 `validate_seed_config()`에 전달한다. 설정은 `topic`과 `trusted`를 담은 중첩 딕셔너리 형태다. 검사에 통과하면 `None`을 반환하고, 잘못된 설정이면 `ValueError`가 발생한다.
+
+`select_topic_seeds()`는 지정한 도메인에 속하는 원본 호스트 ID를 반환한다. `make_personalization()`은 전체 호스트 수와 중복 없는 정수 ID 목록을 받아, seed에 같은 비중을 주는 길이 N의 `float64` 배열을 만든다.
+
+```python
+from src.seeds import make_personalization, select_topic_seeds, validate_seed_config
+
+seed_cfg = load_config("configs/seeds.yaml")
+validate_seed_config(seed_cfg)
+
+domains = cfg.require("domains", "ppr_seed_domains")
+seed_ids = select_topic_seeds(ds.graph.hostnames, domains)
+s = make_personalization(ds.graph.n, seed_ids)  # power_iteration()의 teleport에 전달
+```
+
 **PageRank·TrustRank (`src/rank.py`)**: `cfg["rank"]`를 그대로 넘기면 β, tol, max_iter, dangling이 적용된다.
 
 ```python
