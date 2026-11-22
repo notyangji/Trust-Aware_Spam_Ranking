@@ -17,3 +17,4 @@ AI 활용 내역을 작업별로 아래 표에 한 행씩 추가한다.
 | 2026-11-21 | Claude Code (Opus 5.5) | `src/config.py`, `tests/test_config.py` | 스크립트마다 있던 설정 읽기를 하나로 통합 | 리팩토링 전후 출력 파일 바이트 단위 동일, `pytest` 29개 통과 |
 | 2026-11-21 | Claude Code (Opus 5.5) | `src/baselines.py`, `scripts/run_baselines.py` | random·in-degree baseline, 점수 파일(`.npy` + `.json` 방향 기록) 저장 작성 | 작은 예제로 in-degree 계산 확인, 실제 그래프 in-degree 0 host 수가 통계와 일치 |
 | 2026-11-21 | Claude Code (Opus 5.5) | `notebooks/01_eda.ipynb`, `results/figures/` | GUIDE 8절 EDA 6개 항목과 그림 작성 | Jupyter 커널로 전체 실행 시 오류 없음, 그림 직접 확인, 수치를 별도 계산과 대조 |
+| 2026-11-23 | Codex | `configs/seeds.yaml`, `src/seeds.py`, 관련 Markdown 문서 | #13 seed 설정·선정 로직 설계와 구현 보조, 함수 사용법과 점수 저장 규약 정리 | 구현·테스트 코드와 문서 대조, `git diff --check` 확인 |

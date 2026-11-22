@@ -6,17 +6,20 @@
 
 | 파일 | 내용 | 상태 |
 |---|---|---|
-| `configs/default.yaml` | 모든 설정값 (경로, β, tol, 분할 비율, seed 등) | 작성 |
+| `configs/default.yaml` | 공통 설정 (경로, β, tol, 분할 비율, PPR 후보 도메인 등) | 작성 |
+| `configs/seeds.yaml` | Topic·trusted seed 선정 방식, 개수, 난수값, spam 혼입률 | 작성 |
 | `src/config.py` | 설정 파일 읽기 `load_config` (모든 script·notebook 공통) | 작성 |
 | `src/common/schema.py` | 공통 자료형 `HostGraph`, `Dataset`, 라벨 상수 | 작성 |
 | `src/data.py` | raw parsing, train/val/test 분할(사이트 단위), `load_dataset()` | 작성 |
 | `src/graph.py` | 전이 행렬 `build_transition`, 도메인 판정 `domain_of`·`site_of` | 작성 |
 | `src/rank.py` | 공통 `power_iteration`, `pagerank` | 작성 |
+| `src/seeds.py` | Seed 설정·ID 검증, topic·trusted seed 선정, 개인화 벡터 구성 | 작성 |
 | `src/baselines.py` | random·in-degree baseline 점수 | 작성 |
 | `scripts/download_data.py` | 원본 4개 다운로드, 라벨 압축 해제 | 작성 |
 | `scripts/build_processed.py` | raw → `data/processed/` (분할 포함) | 작성 |
 | `scripts/run_baselines.py` | PageRank·baseline 점수 → `results/scores/` | 작성 |
 | `tests/test_rank.py`, `tests/test_config.py` | 엔진·설정 테스트 | 작성 |
+| `tests/test_seeds.py` | Seed 선정·검증 테스트 | 작성 |
 | `notebooks/01_eda.ipynb` | EDA: 통계표, degree 분포, spam/nonspam 비교, TrustRank 가정, 도메인 집계, seed 도달 범위 | 작성 |
 
 # 실행 순서
@@ -33,7 +36,7 @@
 python scripts/download_data.py      # 1. 원본 → data/raw/
 python scripts/build_processed.py    # 2. data/raw/ → data/processed/
 python scripts/run_baselines.py      # 3. PageRank·baseline 점수 → results/scores/
-pytest                               # 엔진·설정 테스트 (데이터 불필요)
+pytest                               # 엔진·설정·seed 테스트 (데이터 불필요)
 ```
 
 | 단계 | 출력 | 시간 |
@@ -66,6 +69,8 @@ pytest                               # 엔진·설정 테스트 (데이터 불�
 | `split` | `val_frac` / `random_seed` | 0.3 / 42 | 팀 합의값. val spam이 부족하면 더 늘려 봄 |
 | `baselines` | `random_seed` | 42 | |
 | `domains` | `ppr_seed_domains` | `[ac.uk, gov.uk]` | B와 결정 |
+
+Seed 선정 조건은 [configs/seeds.yaml](configs/seeds.yaml)에 둔다. Topic은 기본 도메인의 후보 전체를 사용하고, trusted는 학습용 nonspam에서 난수값 42로 100개를 고른다. 이 값은 첫 실험의 기준 조건이다.
 
 # 점수 파일 (`results/scores/`)
 
@@ -118,3 +123,5 @@ pytest
 - `networkx`는 결과 검증(test 7–8)에만 쓰며, 이 프로젝트의 알고리즘이 아니다. test 7은 `networkx`의 기본 dead end 처리(personalization으로 보냄)를 `dangling="teleport"`와, test 8은 균등 `dangling`을 `"uniform"`과 대응시킨다.
 
 **`tests/test_config.py`** (7개): 기본 설정 읽기, 현재 폴더와 무관한 경로 해석, 없는 파일·없는 키·잘못된 형식의 오류.
+
+**`tests/test_seeds.py`**는 가상 데이터로 잘못된 입력과 후보 부족 처리, 선정 재현성, 학습 분할 제한, 혼입률 기록, 개인화 벡터 생성을 검증한다.
