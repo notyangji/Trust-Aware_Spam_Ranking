@@ -38,7 +38,9 @@ site_of("www1.example.co.uk")                # "example.co.uk"
 
 `load_config()`로 읽은 설정을 `validate_seed_config()`에 전달한다. 설정은 `topic`과 `trusted`를 담은 중첩 딕셔너리 형태다. 검사에 통과하면 `None`을 반환하고, 잘못된 설정이면 `ValueError`가 발생한다.
 
-`select_topic_seeds()`는 지정한 도메인에 속하는 원본 호스트 ID를 반환한다. `make_personalization()`은 전체 호스트 수와 중복 없는 정수 ID 목록을 받아, seed에 같은 비중을 주는 길이 N의 `float64` 배열을 만든다.
+`select_topic_seeds()`는 지정한 도메인에서 고른 원본 호스트 ID를 오름차순 `int64` 배열로 반환한다. `strategy="all"`은 후보 전체를 고른다. `strategy="random"`은 `random_seed`로 후보를 섞고 앞에서 `n_seeds`개를 고른다. 후보와 난수값이 같으면 개수를 늘려도 기존 seed가 포함된다. 요청한 개수만큼 후보가 없으면 `ValueError`가 발생한다.
+
+`make_personalization()`은 전체 호스트 수와 중복 없는 정수 ID 목록을 받아, seed에 같은 비중을 주는 길이 N의 `float64` 배열을 만든다.
 
 ```python
 from src.seeds import make_personalization, select_topic_seeds, validate_seed_config
@@ -47,7 +49,7 @@ seed_cfg = load_config("configs/seeds.yaml")
 validate_seed_config(seed_cfg)
 
 domains = cfg.require("domains", "ppr_seed_domains")
-seed_ids = select_topic_seeds(ds.graph.hostnames, domains)
+seed_ids = select_topic_seeds(ds.graph.hostnames, domains, **seed_cfg["topic"])
 s = make_personalization(ds.graph.n, seed_ids)  # power_iteration()의 teleport에 전달
 ```
 
