@@ -1,0 +1,28 @@
+# 공통 설정. 모든 script·notebook이 시작할 때 읽는다 (코드에 숫자를 직접 쓰지 않음).
+# 실험 설정을 바꿀 때는 이 파일을 복사해 configs/beta090.yaml처럼 만들고 --config로 지정한다.
+# 키 이름은 file_spec.md의 제안값. split은 팀 합의값 (val 30%, 사이트 단위 분할).
+
+paths:                       # 프로젝트 루트 기준 상대 경로
+  raw_dir: data/raw
+  processed_dir: data/processed
+  scores_dir: results/scores
+  figures_dir: results/figures
+
+download:
+  base_url: https://chato.cl/webspam/datasets/uk2007/
+
+rank:
+  beta: 0.85                 # teleport하지 않고 링크를 따라갈 확률
+  tol: 1.0e-8                # "1e-8"로 쓰면 PyYAML이 문자열로 읽음 → 반드시 1.0e-8
+  max_iter: 300
+  dangling: teleport         # dead end 처리: teleport | uniform
+
+split:
+  val_frac: 0.3              # SET1 중 val 비율 (val spam이 적으면 더 늘려 볼 것)
+  random_seed: 42
+
+baselines:
+  random_seed: 42
+
+domains:
+  ppr_seed_domains: [ac.uk, gov.uk]   # B와 결정 (nhs.uk·police.uk·mod.uk 포함 여부)
