@@ -17,3 +17,6 @@ AI 활용 내역을 작업별로 아래 표에 한 행씩 추가한다.
 | 2026-11-21 | Claude Code (Opus 5.5) | `src/config.py`, `tests/test_config.py` | 스크립트마다 있던 설정 읽기를 하나로 통합 | 리팩토링 전후 출력 파일 바이트 단위 동일, `pytest` 29개 통과 |
 | 2026-11-21 | Claude Code (Opus 5.5) | `src/baselines.py`, `scripts/run_baselines.py` | random·in-degree baseline, 점수 파일(`.npy` + `.json` 방향 기록) 저장 작성 | 작은 예제로 in-degree 계산 확인, 실제 그래프 in-degree 0 host 수가 통계와 일치 |
 | 2026-11-21 | Claude Code (Opus 5.5) | `notebooks/01_eda.ipynb`, `results/figures/` | GUIDE 8절 EDA 6개 항목과 그림 작성 | Jupyter 커널로 전체 실행 시 오류 없음, 그림 직접 확인, 수치를 별도 계산과 대조 |
+| 2026-11-20 | Claude (Anthropic, Claude Opus 5.5) | `requirements.txt`, `README.md` | 패키지 목록과 버전 고정, Python 버전·설치 방법 표기 | 새 venv(Python 3.12)에 설치 후 전체 import 확인 |
+| 2026-11-21 | Claude (Anthropic, Claude Opus 5.5) | `docs/file_entry.md`, `.gitignore` | 역할 C 파일 트리·표 초안 작성 | 팀 실험 설계(E1–E6)와 대조, `git diff`로 B 내용 보존 확인 |
+| 2026-11-21 | Claude (Anthropic, Claude Opus 5.5) | `src/metrics.py`, `tests/test_metrics.py` | 평가 지표(PR-AUC, ROC-AUC, P@K 동점 기대값, 방향 결정, paired bootstrap CI) 구현 및 테스트 작성 | `pytest` 9개 통과, sklearn 결과와 교차 확인 |
