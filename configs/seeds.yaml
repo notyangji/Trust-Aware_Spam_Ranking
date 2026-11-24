@@ -1,0 +1,18 @@
+# 한 번 실행할 기본 seed 조건. 성능 실험으로 선택한 최종값은 아니다.
+# 여러 조건을 비교할 실험 목록은 C와 합의해 configs/experiments/에서 관리한다.
+# 도메인 목록·rank·split·경로는 default.yaml에서 가져온다.
+
+topic:
+  strategy: all               # 설정한 도메인의 후보 전체 사용 (all | random)
+  # random으로 바꿀 때 아래 두 항목을 함께 설정한다.
+  # n_seeds: 100
+  # random_seed: 42
+
+trusted:
+  strategy: random            # 초기 구현에서 지원할 선정 방식
+  n_seeds: 100                # 첫 실행용 기준값. 최적 seed 개수라는 뜻은 아님
+  random_seed: 42             # 선정 결과 재현용. 데이터 분할 난수와 별개
+  contamination_rate: 0.0     # 오염 없는 기준 조건. 품질 실험에서는 따로 변경
+
+# 이 파일을 작성하는 것만으로 seed 선정이나 계산이 실행되지는 않는다.
+# 실행 스크립트가 공통 설정과 이 설정을 읽고 선정 함수에 전달해야 한다.
