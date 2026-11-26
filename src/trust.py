@@ -2,7 +2,9 @@ import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
+from src.graph import build_transition
 from src.ppr import personalized_pagerank
+from src.rank import pagerank
 from src.seeds import validate_seed_ids
 
 
@@ -49,3 +51,15 @@ def hop_distance(adjacency, seed_ids):
     reached = np.isfinite(dist)
     dist[~reached] = dist[reached].max() + 1
     return dist
+
+
+def inverse_pagerank(adjacency, **rank_options):
+    """링크 방향을 뒤집은 그래프에서 균등 teleport PageRank를 계산한다 (Inverse PageRank).
+
+    adjacency는 HostGraph.adjacency (A[i, j] = i → j 링크 수)다. 내부에서 A를 전치해 전이 행렬을 만든다.
+    일반 PageRank가 링크를 많이 받는 호스트를 높게 보는 반면, Inverse PageRank는 링크를 많이 거는
+    호스트를 높게 본다. spam 방향은 정해져 있지 않으므로 저장할 때 higher_is_spam은 null로 둔다.
+    rank_options는 beta, tol, return_info 같은 공통 랭킹 옵션이다.
+    """
+    M_rev = build_transition(csr_matrix(adjacency).T.tocsr())
+    return pagerank(M_rev, **rank_options)

@@ -4,7 +4,7 @@ from scipy.sparse import csr_matrix
 
 from src.graph import build_transition
 from src.rank import pagerank
-from src.trust import hop_distance, spam_mass, trustrank
+from src.trust import hop_distance, inverse_pagerank, spam_mass, trustrank
 
 
 def test_trustrank_propagates_scores_from_trusted_seed():
@@ -62,3 +62,19 @@ def test_hop_distance_counts_links_from_nearest_seed():
 
     np.testing.assert_array_equal(hop_distance(A, [0]), [0, 1, 2, 3, 3])
     np.testing.assert_array_equal(hop_distance(A, [0, 3]), [0, 1, 1, 0, 2])
+
+
+def test_inverse_pagerank_ranks_hosts_by_out_links():
+    """뒤집은 그래프의 PageRank와 같고, 링크를 거는 쪽(출발)이 높은 점수를 받는지 확인한다."""
+    A = csr_matrix([
+        [0, 1, 1, 1],   # 0은 세 곳에 링크를 건다
+        [0, 0, 1, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+    ])
+
+    scores, info = inverse_pagerank(A, beta=0.85, tol=1e-12, return_info=True)
+
+    np.testing.assert_allclose(scores, pagerank(build_transition(A.T.tocsr()), beta=0.85, tol=1e-12))
+    assert scores[0] == scores.max()
+    assert info["converged"]

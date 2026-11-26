@@ -21,5 +21,5 @@ AI 활용 내역을 작업별로 아래 표에 한 행씩 추가한다.
 | 2026-11-21 | Claude (Anthropic, Claude Opus 5.5) | `docs/file_entry.md`, `.gitignore` | 역할 C 파일 트리·표 초안 작성 | 팀 실험 설계(E1–E6)와 대조, `git diff`로 B 내용 보존 확인 |
 | 2026-11-21 | Claude (Anthropic, Claude Opus 5.5) | `src/metrics.py`, `tests/test_metrics.py` | 평가 지표(PR-AUC, ROC-AUC, P@K 동점 기대값, 방향 결정, paired bootstrap CI) 구현 및 테스트 작성 | `pytest` 9개 통과, sklearn 결과와 교차 확인 |
 | 2026-11-23 | Codex | `configs/seeds.yaml`, `src/seeds.py`, 관련 Markdown 문서 | #13 seed 설정·선정 로직 설계와 구현 보조, 함수 사용법과 점수 저장 규약 정리 | 구현·테스트 코드와 문서 대조, `git diff --check` 확인 |
-| 2026-11-27 | Claude (Anthropic, Claude Opus 5.5) | `src/trust.py`, `tests/test_trust.py`, `docs/function_reference.md` | spam mass·hop 거리 함수 구현, 테스트 3개, 사용법 문서 작성 | 강의 자료(spam mass 정의)와 대조, 작은 예제 그래프 테스트로 정의·경계값 확인, `pytest` 68개 통과 |
+| 2026-11-27 | Claude (Anthropic, Claude Opus 5.5) | `src/trust.py`, `tests/test_trust.py`, `scripts/run_seeded_rankings.py`, `docs/function_reference.md` | spam mass·hop 거리·Inverse PageRank 함수와 테스트 4개, 저장 스크립트에 `--name` 옵션과 보조 점수 저장 추가, 사용법 문서 작성 | 강의 자료(spam mass 정의)와 대조, 작은 예제 그래프 테스트로 정의·경계값 확인, `pytest` 69개 통과 |
 
