@@ -1,0 +1,7 @@
+# E5: β(링크를 따라갈 확률)에 따른 변화. seed 100개, noise 0.
+name: e5
+methods: [trustrank, spam_mass]
+grid:
+  beta: [0.70, 0.80, 0.85, 0.90]
+  random_seed: [0, 1, 2, 3, 4]
+reference: {method: trustrank, beta: 0.85}
