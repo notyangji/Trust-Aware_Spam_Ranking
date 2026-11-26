@@ -72,3 +72,34 @@ def test_run_experiment_rows_directions_and_reference():
     assert all(r["diff_lo"] <= r["diff_vs_ref"] <= r["diff_hi"] for r in other)
     # 지표 범위와 CI
     assert all(0 <= r["pr_auc"] <= 1 and r["pr_auc_lo"] <= r["pr_auc_hi"] for r in rows)
+
+
+def test_seed_strategies_pick_from_their_pools():
+    """전략별 seed가 학습용 NONSPAM 안에서, 해당 후보에서만 뽑히는지 확인한다."""
+    from scripts.run_experiment import ScoreCache
+    from src.graph import domain_of
+
+    ds = make_ds()
+    hosts = list(ds.graph.hostnames)
+    for i in range(40, 80):                       # co.uk 외 도메인도 섞는다
+        hosts[i] = f"h{i}.org.uk"
+    ds = Dataset(HostGraph(hosts, ds.graph.adjacency), ds.labels, ds.in_set,
+                 ds.train_idx, ds.val_idx, ds.test_idx)
+    cache = ScoreCache(ds, CFG, {k: CFG["rank"][k] for k in ("tol", "max_iter", "dangling")})
+    train_nonspam = set(ds.train_idx[ds.labels[ds.train_idx] == NONSPAM])
+    base = {"beta": 0.85, "contamination_rate": 0.0, "random_seed": 0}
+
+    for strategy, allowed in [("domain", {"ac.uk"}), ("commercial", {"co.uk"})]:
+        seeds = cache.trusted({**base, "seed_strategy": strategy, "n_seeds": 5})
+        assert len(seeds) == 5 and set(seeds) <= train_nonspam
+        assert {domain_of(hosts[i]) for i in seeds} <= allowed
+
+    seeds = cache.trusted({**base, "seed_strategy": "high_pr", "n_seeds": 5})
+    pr, _ = cache.score("pagerank", base)
+    pool = np.array(sorted(train_nonspam))
+    assert set(seeds) == set(pool[np.argsort(-pr[pool], kind="stable")[:5]])
+
+    with pytest.raises(ValueError):               # 후보보다 많이 요청
+        cache.trusted({**base, "seed_strategy": "domain", "n_seeds": 10_000})
+    with pytest.raises(ValueError):               # random 외 전략은 noise 미지원
+        cache.trusted({**base, "seed_strategy": "domain", "n_seeds": 5, "contamination_rate": 0.1})

@@ -16,6 +16,13 @@
     reference: {method: trustrank, n_seeds: 100}           # paired 차이 CI의 기준 (선택)
 지정하지 않은 값은 기본 설정(default.yaml의 rank, seeds.yaml의 trusted)을 따른다.
 n_seeds: all은 학습용 NONSPAM 전체(혼입이 있으면 그만큼 뺀 수)를 뜻한다.
+
+seed_strategy (trusted seed를 어디서 어떻게 고를지, 기본 random). 후보는 모두 학습용 NONSPAM이다.
+    random      전체 후보에서 무작위 (src/seeds.py의 select_trusted_seeds 그대로)
+    domain      domains.ppr_seed_domains(ac.uk·gov.uk) 도메인 후보에서 무작위
+    commercial  co.uk 후보에서 무작위
+    high_pr     전체 후보 중 PageRank 상위 n개 (난수 안 씀)
+random 외의 전략은 contamination_rate 0만 지원한다.
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ from src.baselines import indegree_scores, random_scores  # noqa: E402
 from src.common.schema import NONSPAM  # noqa: E402
 from src.config import DEFAULT_CONFIG, load_config  # noqa: E402
 from src.data import load_dataset  # noqa: E402
-from src.graph import build_transition  # noqa: E402
+from src.graph import build_transition, domain_of  # noqa: E402
 from src.metrics import (bootstrap, choose_direction, eval_arrays, paired_diff_ci,  # noqa: E402
                          pr_auc, precision_at_k, roc_auc, tie_fraction)
 from src.ppr import personalized_pagerank  # noqa: E402
@@ -53,7 +60,8 @@ DIRECTION = {
     "trustrank": -1, "spam_mass": +1, "hop": +1,
 }
 SEEDED = {"trustrank", "spam_mass", "hop"}       # trusted seed에 따라 달라지는 방법
-PARAMS = ("beta", "n_seeds", "contamination_rate", "random_seed")
+PARAMS = ("beta", "n_seeds", "contamination_rate", "random_seed", "seed_strategy")
+SEED_STRATEGIES = ("random", "domain", "commercial", "high_pr")
 KS = (100, 500)
 COLUMNS = ["exp", "method", *PARAMS, "direction", "eval_subset", "n_eval", "n_pos", "prevalence",
            "pr_auc", "pr_auc_lo", "pr_auc_hi", "roc_auc", *[f"p@{k}" for k in KS], "tie_frac",
@@ -71,11 +79,11 @@ def expand_grid(exp_cfg, defaults):
     return [{**base, **dict(zip(keys, values))} for values in itertools.product(*(grid[k] for k in keys))]
 
 
-def resolve_n_seeds(ds, n_seeds, contamination_rate):
-    """n_seeds: all → 학습용 NONSPAM 전체를 쓰도록 총개수를 계산한다."""
+def resolve_n_seeds(ds, n_seeds, contamination_rate, pool_size=None):
+    """n_seeds: all → 후보 전체(기본: 학습용 NONSPAM 전체)를 쓰도록 총개수를 계산한다."""
     if n_seeds != "all":
         return int(n_seeds)
-    n_nonspam = int((ds.labels[ds.train_idx] == NONSPAM).sum())
+    n_nonspam = pool_size if pool_size is not None else int((ds.labels[ds.train_idx] == NONSPAM).sum())
     return int(n_nonspam / (1 - contamination_rate)) if contamination_rate < 1 else n_nonspam
 
 
@@ -88,7 +96,8 @@ class ScoreCache:
         self.M = build_transition(self.A)
         self._M_w = None
         self._memo = {}
-        self.topic_ids = select_topic_seeds(ds.graph.hostnames, cfg.require("domains", "ppr_seed_domains"))
+        self.seed_domains = list(cfg.require("domains", "ppr_seed_domains"))
+        self.topic_ids = select_topic_seeds(ds.graph.hostnames, self.seed_domains)
 
     def _get(self, key, fn):
         if key not in self._memo:
@@ -98,12 +107,40 @@ class ScoreCache:
     def _rank(self, beta):
         return {**self.rank, "beta": float(beta), "return_info": True}
 
+    def seed_pool(self, strategy):
+        """학습용 NONSPAM 중 전략에 맞는 host ID (오름차순)."""
+        ids = self.ds.train_idx[self.ds.labels[self.ds.train_idx] == NONSPAM]
+        dom = np.array([domain_of(self.ds.graph.hostnames[i]) for i in ids])
+        if strategy == "domain":
+            return np.sort(ids[np.isin(dom, self.seed_domains)])
+        if strategy == "commercial":
+            return np.sort(ids[dom == "co.uk"])
+        if strategy in ("random", "high_pr"):
+            return np.sort(ids)
+        raise ValueError(f"알 수 없는 seed_strategy: {strategy} (가능: {SEED_STRATEGIES})")
+
     def trusted(self, run):
-        n = resolve_n_seeds(self.ds, run["n_seeds"], run["contamination_rate"])
-        key = ("seeds", n, run["contamination_rate"], run["random_seed"])
-        return self._get(key, lambda: select_trusted_seeds(
-            self.ds, n_seeds=n, random_seed=int(run["random_seed"]),
-            contamination_rate=float(run["contamination_rate"])))
+        strategy = run.get("seed_strategy", "random")
+        rate = float(run["contamination_rate"])
+        if strategy == "random":
+            n = resolve_n_seeds(self.ds, run["n_seeds"], rate)
+            key = ("seeds", strategy, n, rate, run["random_seed"])
+            return self._get(key, lambda: select_trusted_seeds(
+                self.ds, n_seeds=n, random_seed=int(run["random_seed"]), contamination_rate=rate))
+        if rate != 0:
+            raise ValueError(f"seed_strategy={strategy}는 contamination_rate 0만 지원합니다.")
+        pool = self._get(("pool", strategy), lambda: self.seed_pool(strategy))
+        n = resolve_n_seeds(self.ds, run["n_seeds"], 0.0, pool_size=len(pool))
+        if n > len(pool):
+            raise ValueError(f"seed_strategy={strategy} 후보 {len(pool)}개에서 {n}개를 고를 수 없습니다.")
+        if strategy == "high_pr":
+            pr, _ = self.score("pagerank", run)
+            key = ("seeds", strategy, n, run["beta"])
+            return self._get(key, lambda: np.sort(pool[np.argsort(-pr[pool], kind="stable")[:n]]))
+        key = ("seeds", strategy, n, run["random_seed"])
+        # select_trusted_seeds와 같은 방식: 후보 순서를 먼저 섞고 앞에서 자른다 (n이 커져도 작은 집합을 포함).
+        return self._get(key, lambda: np.sort(
+            np.random.default_rng(int(run["random_seed"])).permutation(pool)[:n]))
 
     def score(self, method, run):
         """(점수, 수렴 정보) — 수렴 정보가 없는 방법은 None."""
@@ -158,8 +195,12 @@ def git_commit():
 def run_experiment(exp_cfg, ds, cfg, seed_cfg, n_boot=1000, boot_seed=0, log=print):
     rank = {k: cfg.require("rank", k) for k in ("tol", "max_iter", "dangling")}
     defaults = {"beta": float(cfg.require("rank", "beta")), **{
-        k: seed_cfg["trusted"][k] for k in ("n_seeds", "contamination_rate", "random_seed")}}
+        k: seed_cfg["trusted"][k] for k in ("n_seeds", "contamination_rate", "random_seed")},
+        "seed_strategy": "random"}
     runs = expand_grid(exp_cfg, defaults)
+    bad = {r["seed_strategy"] for r in runs} - set(SEED_STRATEGIES)
+    if bad:
+        raise ValueError(f"알 수 없는 seed_strategy: {sorted(bad)} (가능: {SEED_STRATEGIES})")
     methods = list(exp_cfg["methods"])
     unknown = set(methods) - set(DIRECTION)
     if unknown:
