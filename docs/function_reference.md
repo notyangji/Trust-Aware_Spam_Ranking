@@ -277,3 +277,23 @@ r, info = pagerank(M, return_info=True)          # info: iterations, residual, c
 | PageRank (이진) | 81회, 0.16초 | 123회, 0.30초 |
 | PageRank (가중) | 83회, 0.20초 | 126회, 0.27초 |
 | Inverse PR | 69회, 0.15초 | 99회, 0.20초 |
+
+### `trustrank`, `personalized_pagerank`, `spam_mass`, `hop_distance` (`src/trust.py`, `src/ppr.py`)
+
+```python
+from src.rank import pagerank
+from src.trust import trustrank, spam_mass, hop_distance
+
+pr   = pagerank(M, **cfg["rank"])
+tr   = trustrank(M, trusted_ids, **cfg["rank"])
+mass = spam_mass(pr, tr)                               # (PR − TR) / PR
+hop  = hop_distance(ds.graph.adjacency, trusted_ids)   # seed에서 몇 번 링크를 따라가야 닿는지
+```
+
+| 함수 | 반환 | 방향 (`higher_is_spam`) |
+|---|---|---|
+| `spam_mass(pr, tr)` | 길이 N `float64`. seed 근처는 음수, seed에서 닿지 않는 호스트는 1 | `True` |
+| `hop_distance(A, seed_ids)` | 길이 N `float64`. seed는 0, 닿지 않는 호스트는 (닿은 호스트 중 최댓값 + 1) | `True` |
+
+- `spam_mass`의 두 점수는 같은 β로 계산한 균등 teleport PageRank와 TrustRank여야 한다. PageRank가 0 이하이면 `ValueError`.
+- `hop_distance`는 링크 수와 상관없이 링크 하나를 1 hop으로 센다. seed가 여러 개면 가장 가까운 seed 기준이다.
