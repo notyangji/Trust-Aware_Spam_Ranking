@@ -22,4 +22,6 @@ AI 활용 내역을 작업별로 아래 표에 한 행씩 추가한다.
 | 2026-11-21 | Claude (Anthropic, Claude Opus 5.5) | `src/metrics.py`, `tests/test_metrics.py` | 평가 지표(PR-AUC, ROC-AUC, P@K 동점 기대값, 방향 결정, paired bootstrap CI) 구현 및 테스트 작성 | `pytest` 9개 통과, sklearn 결과와 교차 확인 |
 | 2026-11-23 | Codex | `configs/seeds.yaml`, `src/seeds.py`, 관련 Markdown 문서 | #13 seed 설정·선정 로직 설계와 구현 보조, 함수 사용법과 점수 저장 규약 정리 | 구현·테스트 코드와 문서 대조, `git diff --check` 확인 |
 | 2026-11-27 | Claude (Anthropic, Claude Opus 5.5) | `src/trust.py`, `tests/test_trust.py`, `scripts/run_seeded_rankings.py`, `docs/function_reference.md` | spam mass·hop 거리·Inverse PageRank 함수와 테스트 4개, 저장 스크립트에 `--name` 옵션과 보조 점수 저장 추가, 사용법 문서 작성 | 강의 자료(spam mass 정의)와 대조, 작은 예제 그래프 테스트로 정의·경계값 확인, `pytest` 69개 통과 |
+| 2026-11-27 | Claude (Anthropic, Claude Opus 5.5) | `scripts/run_experiment.py`, `tests/test_experiment.py`, `configs/experiments/e1–e5.yaml` | 실험 runner(설정 조합 실행, seed 선정 전략, val 평가, bootstrap CI, paired 차이, CSV 저장)와 실험 설정 작성 | 작은 예제 데이터 테스트 4개(조합 수, 방향, val만 사용, 기준 차이 0, 전략별 seed 후보), 저장 점수 파일 평가값과 대조, `pytest` 73개 통과 |
+| 2026-11-27 | Claude (Anthropic, Claude Opus 5.5) | `notebooks/02_results.ipynb`, `results/metrics/summary_*.md`, `results/figures/e*.png` | 결과 요약 표, 그림, 오류 분석 셀 작성 | 요약 표 수치를 CSV 직접 집계와 대조, 그림 육안 확인 |
 
