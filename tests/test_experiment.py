@@ -99,6 +99,11 @@ def test_seed_strategies_pick_from_their_pools():
     pool = np.array(sorted(train_nonspam))
     assert set(seeds) == set(pool[np.argsort(-pr[pool], kind="stable")[:5]])
 
+    seeds = cache.trusted({**base, "seed_strategy": "domain_high_pr", "n_seeds": 5})
+    dom_pool = cache.seed_pool("domain")
+    assert np.array_equal(cache.seed_pool("domain_high_pr"), dom_pool)
+    assert set(seeds) == set(dom_pool[np.argsort(-pr[dom_pool], kind="stable")[:5]])
+
     with pytest.raises(ValueError):               # 후보보다 많이 요청
         cache.trusted({**base, "seed_strategy": "domain", "n_seeds": 10_000})
     with pytest.raises(ValueError):               # random 외 전략은 noise 미지원

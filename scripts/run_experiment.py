@@ -22,7 +22,9 @@ seed_strategy (trusted seed를 어디서 어떻게 고를지, 기본 random). �
     domain      domains.ppr_seed_domains(ac.uk·gov.uk) 도메인 후보에서 무작위
     commercial  co.uk 후보에서 무작위
     high_pr     전체 후보 중 PageRank 상위 n개 (난수 안 씀)
-random 외의 전략은 contamination_rate 0만 지원한다.
+    svd         인접 행렬 truncated SVD의 축마다 대표 host 하나씩 (난수 안 씀, 축 수 = n)
+    domain_high_pr  domain 후보 중 PageRank 상위 n개 (난수 안 씀). val을 보고 추가한 탐색 전략
+random 외의 전략은 contamination_rate 0만 지원한다. 전략 함수는 src/seed_strategies.py에 있다.
 """
 
 from __future__ import annotations
@@ -44,11 +46,13 @@ from src.baselines import indegree_scores, random_scores  # noqa: E402
 from src.common.schema import NONSPAM  # noqa: E402
 from src.config import DEFAULT_CONFIG, load_config  # noqa: E402
 from src.data import load_dataset  # noqa: E402
-from src.graph import build_transition, domain_of  # noqa: E402
+from src.graph import build_transition  # noqa: E402
 from src.metrics import (bootstrap, choose_direction, eval_arrays, paired_diff_ci,  # noqa: E402
                          pr_auc, precision_at_k, roc_auc, tie_fraction)
 from src.ppr import personalized_pagerank  # noqa: E402
 from src.rank import pagerank  # noqa: E402
+from src.seed_strategies import (STRATEGIES as SEED_STRATEGIES, high_pagerank_seeds,  # noqa: E402
+                                 random_pool_seeds, seed_pool, svd_components, svd_seeds)
 from src.seeds import select_topic_seeds, select_trusted_seeds  # noqa: E402
 from src.trust import hop_distance, inverse_pagerank, spam_mass, trustrank  # noqa: E402
 
@@ -61,7 +65,7 @@ DIRECTION = {
 }
 SEEDED = {"trustrank", "spam_mass", "hop"}       # trusted seed에 따라 달라지는 방법
 PARAMS = ("beta", "n_seeds", "contamination_rate", "random_seed", "seed_strategy")
-SEED_STRATEGIES = ("random", "domain", "commercial", "high_pr")
+SVD_MAX_K = 100                                 # svd 전략은 SVD를 한 번(축 100개) 계산해 앞쪽 축만 쓴다
 KS = (100, 500)
 COLUMNS = ["exp", "method", *PARAMS, "direction", "eval_subset", "n_eval", "n_pos", "prevalence",
            "pr_auc", "pr_auc_lo", "pr_auc_hi", "roc_auc", *[f"p@{k}" for k in KS], "tie_frac",
@@ -108,16 +112,12 @@ class ScoreCache:
         return {**self.rank, "beta": float(beta), "return_info": True}
 
     def seed_pool(self, strategy):
-        """학습용 NONSPAM 중 전략에 맞는 host ID (오름차순)."""
-        ids = self.ds.train_idx[self.ds.labels[self.ds.train_idx] == NONSPAM]
-        dom = np.array([domain_of(self.ds.graph.hostnames[i]) for i in ids])
-        if strategy == "domain":
-            return np.sort(ids[np.isin(dom, self.seed_domains)])
-        if strategy == "commercial":
-            return np.sort(ids[dom == "co.uk"])
-        if strategy in ("random", "high_pr"):
-            return np.sort(ids)
-        raise ValueError(f"알 수 없는 seed_strategy: {strategy} (가능: {SEED_STRATEGIES})")
+        return self._get(("pool", strategy), lambda: seed_pool(self.ds, strategy, self.seed_domains))
+
+    def svd_U(self, k):
+        if k > SVD_MAX_K:
+            raise ValueError(f"svd 전략은 n_seeds {SVD_MAX_K} 이하만 지원합니다.")
+        return self._get(("svd",), lambda: svd_components(self.A, SVD_MAX_K)[0])
 
     def trusted(self, run):
         strategy = run.get("seed_strategy", "random")
@@ -129,18 +129,15 @@ class ScoreCache:
                 self.ds, n_seeds=n, random_seed=int(run["random_seed"]), contamination_rate=rate))
         if rate != 0:
             raise ValueError(f"seed_strategy={strategy}는 contamination_rate 0만 지원합니다.")
-        pool = self._get(("pool", strategy), lambda: self.seed_pool(strategy))
+        pool = self.seed_pool(strategy)
         n = resolve_n_seeds(self.ds, run["n_seeds"], 0.0, pool_size=len(pool))
-        if n > len(pool):
-            raise ValueError(f"seed_strategy={strategy} 후보 {len(pool)}개에서 {n}개를 고를 수 없습니다.")
-        if strategy == "high_pr":
+        if strategy in ("high_pr", "domain_high_pr"):
             pr, _ = self.score("pagerank", run)
-            key = ("seeds", strategy, n, run["beta"])
-            return self._get(key, lambda: np.sort(pool[np.argsort(-pr[pool], kind="stable")[:n]]))
-        key = ("seeds", strategy, n, run["random_seed"])
-        # select_trusted_seeds와 같은 방식: 후보 순서를 먼저 섞고 앞에서 자른다 (n이 커져도 작은 집합을 포함).
-        return self._get(key, lambda: np.sort(
-            np.random.default_rng(int(run["random_seed"])).permutation(pool)[:n]))
+            return self._get(("seeds", strategy, n, run["beta"]), lambda: high_pagerank_seeds(pool, pr, n))
+        if strategy == "svd":
+            return self._get(("seeds", strategy, n), lambda: svd_seeds(self.svd_U(n), pool, n))
+        return self._get(("seeds", strategy, n, run["random_seed"]),
+                         lambda: random_pool_seeds(pool, n, run["random_seed"]))
 
     def score(self, method, run):
         """(점수, 수렴 정보) — 수렴 정보가 없는 방법은 None."""
