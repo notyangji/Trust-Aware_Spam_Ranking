@@ -1,0 +1,10 @@
+# E6: SVD로 seed 고르기. 인접 행렬 truncated SVD의 축마다 대표 host 하나씩 (seed 수 = 축 수).
+#   같은 seed 수의 random·high_pr와 비교한다. noise 0, β 기본값.
+#   svd·high_pr는 난수를 쓰지 않아 random_seed와 관계없이 같은 seed다 (bootstrap 비교만 5번).
+name: e6
+methods: [trustrank, spam_mass]
+grid:
+  n_seeds: [10, 20, 50, 100]
+  seed_strategy: [random, high_pr, svd]
+  random_seed: [0, 1, 2, 3, 4]
+reference: {method: trustrank, seed_strategy: random}

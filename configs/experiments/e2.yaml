@@ -3,9 +3,11 @@
 #   domain: ac.uk·gov.uk 학습용 NONSPAM에서 무작위 (강의: trusted domains)
 #   commercial: co.uk 학습용 NONSPAM에서 무작위
 #   high_pr: 학습용 NONSPAM 중 PageRank 상위 100개 (강의: top k by PageRank)
+#   domain_high_pr: ac.uk·gov.uk 학습용 NONSPAM 중 PageRank 상위 100개
+#     ※ 탐색 결과: 위 네 전략과 E6(SVD) 결과를 val에서 본 뒤 추가했다. 사전에 정한 비교가 아니다.
 name: e2
 methods: [trustrank, spam_mass]
 grid:
-  seed_strategy: [random, domain, commercial, high_pr]
+  seed_strategy: [random, domain, commercial, high_pr, domain_high_pr]
   random_seed: [0, 1, 2, 3, 4]
 reference: {method: trustrank, seed_strategy: random}
