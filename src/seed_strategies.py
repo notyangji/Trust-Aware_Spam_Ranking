@@ -54,7 +54,12 @@ def random_pool_seeds(pool, n, random_seed):
 
 
 def high_pagerank_seeds(pool, pagerank_scores, n):
-    """후보 중 PageRank가 높은 n개. 같은 값이면 ID가 작은 쪽을 먼저 (결정적)."""
+    """후보 중 PageRank가 높은 n개. 같은 값이면 ID가 작은 쪽을 먼저 (결정적).
+
+    host ID는 hostname 알파벳 순이므로, 동점이 경계에 걸리면 알파벳이 앞선 host가 뽑힌다.
+    실제 데이터에서는 train NONSPAM 전체 후보의 상위 1000개, domain 후보의 상위 100개 안에서
+    경계 동점이 없음을 확인했다. PageRank 동점은 링크를 받지 않는 host(최솟값)처럼 아래쪽에 몰린다.
+    """
     _check_n(pool, n, "high_pr")
     pool = np.sort(pool)
     order = np.argsort(-np.asarray(pagerank_scores)[pool], kind="stable")

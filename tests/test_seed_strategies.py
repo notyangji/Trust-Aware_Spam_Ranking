@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
 
-from src.seed_strategies import high_pagerank_seeds, random_pool_seeds, svd_components, svd_seeds
+from src.common.schema import NONSPAM, SPAM, UNLABELED, Dataset, HostGraph
+from src.seed_strategies import high_pagerank_seeds, random_pool_seeds, seed_pool, svd_components, svd_seeds
+from src.seeds import select_trusted_seeds
 
 
 def two_blocks():
@@ -45,3 +47,27 @@ def test_svd_seeds_respects_pool_nesting_and_limits():
     assert set(two) <= set(pool) and len(set(two)) == 2 and set(one) <= set(two)
     with pytest.raises(ValueError):
         svd_seeds(U, pool, 4)              # 축이 3개뿐
+
+
+def test_random_pool_seeds_matches_select_trusted_seeds():
+    """기본 random 전략(B의 select_trusted_seeds)과 후보 지정 추첨(random_pool_seeds)이 같은 seed를 고르는지.
+
+    E2에서 random은 select_trusted_seeds로, domain·commercial은 random_pool_seeds로 뽑으므로
+    두 추첨 방식이 같아야 전략 간 차이가 후보 차이에서만 나온다.
+    """
+    rng = np.random.default_rng(0)
+    n = 300
+    labels = np.full(n, UNLABELED, dtype=np.int8)
+    labeled = rng.permutation(n)[:240]
+    labels[labeled] = np.where(rng.random(240) < 0.2, SPAM, NONSPAM)
+    train, val, test = np.sort(labeled[:160]), np.sort(labeled[160:200]), np.sort(labeled[200:])
+    in_set = np.zeros(n, dtype=np.int8)
+    in_set[labeled[:200]], in_set[labeled[200:]] = 1, 2           # train·val = SET1, test = SET2
+    ds = Dataset(HostGraph([f"h{i}.co.uk" for i in range(n)], csr_matrix((n, n))), labels, in_set, train, val, test)
+    pool = seed_pool(ds, "random", domains=[])
+    for r in range(3):
+        for k in (5, 30, 100):
+            assert np.array_equal(select_trusted_seeds(ds, n_seeds=k, random_seed=r), random_pool_seeds(pool, k, r))
+        # noise가 있으면 NONSPAM 쪽은 noise 0일 때 순서의 앞부분과 같다
+        mixed = select_trusted_seeds(ds, n_seeds=20, random_seed=r, contamination_rate=0.25)
+        assert set(mixed[labels[mixed] == NONSPAM]) == set(random_pool_seeds(pool, 15, r))

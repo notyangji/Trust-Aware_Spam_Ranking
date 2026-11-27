@@ -1,4 +1,4 @@
-# E1: TrustRank를 쓰는 근거. 같은 조건에서 baseline·관련 방법과 비교한다.
+# E1: trust 기반 점수(TrustRank·spam mass·hop)를 쓰는 근거. 같은 조건에서 baseline·관련 방법과 비교한다.
 name: e1
 methods: [random, indegree, pagerank, pagerank_weighted, inverse_pagerank, ppr, trustrank, spam_mass, hop]
 grid:
