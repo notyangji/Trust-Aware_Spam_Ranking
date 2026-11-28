@@ -1,0 +1,7 @@
+# E4: seed에 spam이 섞였을 때(noise)의 견고성. seed 100개, β 기본값.
+name: e4
+methods: [trustrank, spam_mass]
+grid:
+  contamination_rate: [0.0, 0.05, 0.1, 0.2]
+  random_seed: [0, 1, 2, 3, 4]
+reference: {method: trustrank, contamination_rate: 0.0}

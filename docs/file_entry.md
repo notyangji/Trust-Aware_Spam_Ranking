@@ -35,14 +35,16 @@ team_project/
 │   ├── seeds.py                   # [B] topic/trusted seed 선정·개인화 벡터 구성
 │   ├── ppr.py                     # [B] Personalized PageRank
 │   ├── trust.py                   # [B] TrustRank·Inverse PR·spam mass·hop 거리 baseline
-│   └── metrics.py                 # [C] PR-AUC, ROC-AUC, P@K, 방향 결정, bootstrap CI
+│   ├── metrics.py                 # [C] PR-AUC, ROC-AUC, P@K, 방향 결정, bootstrap CI
+│   └── seed_strategies.py         # [C] seed 선정 전략 (E2·E6: 후보 거르기, PageRank 상위, SVD)
 │
 ├── tests/
 │   ├── test_rank.py               # [7] test 1–8 + 불변식 + 예외·경고
 │   ├── test_seeds.py              # [B] seed 선정·개인화 벡터 검증
 │   ├── test_ppr.py                # [B] PPR 검증
 │   ├── test_trust.py              # [B] TR 및 관련 점수·baseline 검증
-│   └── test_metrics.py            # [C] 평가 지표 검증
+│   ├── test_metrics.py            # [C] 평가 지표 검증
+│   └── test_seed_strategies.py    # [C] seed 선정 전략 검증
 │
 ├── notebooks/
 │   ├── 01_eda.ipynb               # [8] EDA, 도메인 집계
@@ -88,6 +90,8 @@ team_project/
 | `tests/test_trust.py` | B | TR의 PPR 연계, seed 도달성·역방향 그래프·관련 점수 검증 | 전원 |
 | `src/metrics.py` | C | PR-AUC, ROC-AUC, P@K(동점은 기대값), 점수 방향 결정(val), stratified paired bootstrap CI | C (B도 seed 확인용으로 사용 가능) |
 | `tests/test_metrics.py` | C | 손계산 예제, sklearn 교차 확인, 동점 처리, 예외 | 전원 |
+| `src/seed_strategies.py` | C | seed 후보 거르기(domain·co.uk·전체), 무작위·PageRank 상위·SVD 축별 seed 선정 (E2·E6). `domain_high_pr`는 val 결과를 보고 추가한 탐색 전략 | C |
+| `tests/test_seed_strategies.py` | C | 무작위 재현성·포함 관계, PageRank 상위·동점 처리, SVD 축 정렬·무리별 선택·후보 제한 | 전원 |
 | `configs/experiments/e*.yaml` | C | E1–E6 실험 grid (기본값 외에 바꾸는 값만) | C |
 | `scripts/run_experiment.py` | C | 설정별 점수 계산 → val 평가 → CSV 저장. test는 쓰지 않음 | C |
 | `configs/final.yaml` | C | 최종 test 평가 목록 (val 결과로 확정) | C |

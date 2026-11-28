@@ -16,3 +16,6 @@ matplotlib==3.11.2
 
 # 테스트
 pytest==9.2.0
+
+# 노트북 (notebooks/*.ipynb 실행)
+ipykernel==7.4.0

@@ -1,0 +1,9 @@
+### seed 전략별 도메인 위험도 (risk 순위 평균, random_seed 0, seed 100개, val). domain_high_pr는 탐색 결과
+
+| strategy | NONSPAM ac.uk·gov.uk | NONSPAM co.uk | NONSPAM org.uk | NONSPAM 기타 | SPAM 전체 | 놓친 SPAM 수 |
+|---|---|---|---|---|---|---|
+| commercial | 0.3160 | 0.5310 | 0.3720 | 0.5800 | 0.5520 | 32 |
+| random | 0.3010 | 0.5340 | 0.3430 | 0.5740 | 0.6060 | 24 |
+| domain | 0.1930 | 0.5410 | 0.3320 | 0.5460 | 0.6420 | 18 |
+| high_pr | 0.2520 | 0.5390 | 0.3320 | 0.5430 | 0.6240 | 23 |
+| domain_high_pr | 0.2020 | 0.5420 | 0.3280 | 0.5430 | 0.6430 | 19 |
