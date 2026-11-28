@@ -1,0 +1,20 @@
+# 최종 test 평가 목록. scripts/run_final_test.py가 한 번만 실행한다.
+# val(E1–E6)에서 모든 결정을 끝낸 뒤 고정했다. 이 파일을 커밋한 다음 test를 실행하고, 이후 바꾸지 않는다.
+# 점수 방향(PageRank·PPR·Inverse PR의 +/−)은 test가 아니라 validation으로 정한다.
+name: final_test
+groups:
+  # 비교 기준: E1과 같은 비교. 기본 TrustRank(random seed 100개, β 0.85)와 baseline·관련 방법 전체
+  - name: baselines
+    methods: [random, indegree, pagerank, pagerank_weighted, inverse_pagerank, ppr, trustrank, spam_mass, hop]
+    grid:
+      random_seed: [0, 1, 2, 3, 4]
+  # val로 고른 설정: E2·E6 val 결과로 고른 seed 전략
+  #   domain_high_pr: val에서 가장 높았던 조합 (Spam mass 0.0947, TR 0.0926). val 결과를 보고 추가한 전략
+  #   domain, high_pr: E2의 결론(seed의 출처가 중요)을 각각 단독으로 확인
+  #   high_pr·domain_high_pr는 난수를 쓰지 않아 random_seed와 관계없이 같은 seed다 (기준과 짝짓기 위해 0–4를 둔다).
+  - name: selected
+    methods: [trustrank, spam_mass]
+    grid:
+      seed_strategy: [domain, high_pr, domain_high_pr]
+      random_seed: [0, 1, 2, 3, 4]
+reference: {method: trustrank, seed_strategy: random}   # 같은 random_seed의 기본 TR

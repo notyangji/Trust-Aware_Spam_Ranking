@@ -108,3 +108,51 @@ def test_seed_strategies_pick_from_their_pools():
         cache.trusted({**base, "seed_strategy": "domain", "n_seeds": 10_000})
     with pytest.raises(ValueError):               # random 외 전략은 noise 미지원
         cache.trusted({**base, "seed_strategy": "domain", "n_seeds": 5, "contamination_rate": 0.1})
+
+
+def test_final_groups_splits_and_val_directions():
+    """최종 평가: 묶음별 조합, val·test 둘 다 평가, 방향은 val로, 기준은 묶음을 넘어 짝짓는다."""
+    from src.metrics import choose_direction
+
+    ds = make_ds()
+    final = {"name": "f",
+             "groups": [{"name": "pre", "methods": ["pagerank", "trustrank"], "grid": {"random_seed": [0, 1]}},
+                        {"name": "exp", "methods": ["trustrank"],
+                         "grid": {"seed_strategy": ["high_pr"], "random_seed": [0, 1]}}],
+             "reference": {"method": "trustrank", "seed_strategy": "random"}}
+    rows = run_experiment(final, ds, CFG, SEED_CFG, n_boot=50, log=lambda *_: None, splits=("val", "test"))
+
+    assert len(rows) == (2 * 2 + 1 * 2) * 2                       # (조합 × 방법) × 분할 2개
+    assert {r["group"] for r in rows} == {"pre", "exp"}
+    assert all(r["n_eval"] == {"val": len(ds.val_idx), "test": len(ds.test_idx)}[r["eval_subset"]] for r in rows)
+    # 같은 조합의 val 줄과 test 줄은 방향이 같고, 그 방향은 val로 정한 것
+    for r in (r for r in rows if r["method"] == "pagerank"):
+        from scripts.run_experiment import ScoreCache
+        pr, _ = ScoreCache(ds, CFG, {k: CFG["rank"][k] for k in ("tol", "max_iter", "dangling")}).score("pagerank", r)
+        assert r["direction"] == ("+" if choose_direction(pr, ds)[0] > 0 else "-")
+    # 기준(TR random)은 분할마다 자기 자신과 차이 0, 탐색 묶음에도 같은 분할·random_seed 기준과의 차이가 붙음
+    for sp in ("val", "test"):
+        ref = [r for r in rows if r["group"] == "pre" and r["method"] == "trustrank" and r["eval_subset"] == sp]
+        assert len(ref) == 2 and all(r["diff_vs_ref"] == 0 for r in ref)
+        ex = [r for r in rows if r["group"] == "exp" and r["eval_subset"] == sp]
+        assert len(ex) == 2 and all(r["diff_lo"] <= r["diff_vs_ref"] <= r["diff_hi"] for r in ex)
+    with pytest.raises(ValueError):
+        run_experiment(final, ds, CFG, SEED_CFG, n_boot=10, log=lambda *_: None, splits=("train",))
+
+
+def test_final_config_lists_known_methods_and_strategies():
+    """configs/final.yaml의 방법·seed 전략·설정 키가 runner가 아는 값인지 (test를 돌리기 전에 확인)."""
+    from pathlib import Path
+
+    import yaml
+
+    from scripts.run_experiment import DIRECTION, SEED_STRATEGIES
+
+    final = yaml.safe_load((Path(__file__).resolve().parents[1] / "configs" / "final.yaml").read_text(encoding="utf-8"))
+    defaults = {"beta": 0.85, "n_seeds": 100, "contamination_rate": 0.0, "random_seed": 42, "seed_strategy": "random"}
+    for g in final["groups"]:
+        assert set(g["methods"]) <= set(DIRECTION)
+        runs = expand_grid(g, defaults)
+        assert {r["seed_strategy"] for r in runs} <= set(SEED_STRATEGIES)
+        assert all(r["n_seeds"] == 100 and r["beta"] == 0.85 for r in runs)
+    assert final["reference"] == {"method": "trustrank", "seed_strategy": "random"}

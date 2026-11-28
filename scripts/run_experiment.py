@@ -189,61 +189,77 @@ def git_commit():
         return ""
 
 
-def run_experiment(exp_cfg, ds, cfg, seed_cfg, n_boot=1000, boot_seed=0, log=print):
+def run_experiment(exp_cfg, ds, cfg, seed_cfg, n_boot=1000, boot_seed=0, log=print, splits=("val",)):
+    """exp_cfg의 조합 × 방법마다 점수를 계산해 평가한다.
+
+    splits: 평가할 분할. 실험(E1–E6)은 ("val",)만 쓴다. ("val", "test")는 run_final_test.py 전용.
+    점수 방향("val" 방법)은 splits와 관계없이 항상 validation으로 정한다.
+    exp_cfg에 groups가 있으면 묶음마다 methods·fixed·grid를 따로 두고, 같은 점수 캐시와 기준(reference)을 공유한다.
+    """
     rank = {k: cfg.require("rank", k) for k in ("tol", "max_iter", "dangling")}
     defaults = {"beta": float(cfg.require("rank", "beta")), **{
         k: seed_cfg["trusted"][k] for k in ("n_seeds", "contamination_rate", "random_seed")},
         "seed_strategy": "random"}
-    runs = expand_grid(exp_cfg, defaults)
-    bad = {r["seed_strategy"] for r in runs} - set(SEED_STRATEGIES)
-    if bad:
-        raise ValueError(f"알 수 없는 seed_strategy: {sorted(bad)} (가능: {SEED_STRATEGIES})")
-    methods = list(exp_cfg["methods"])
-    unknown = set(methods) - set(DIRECTION)
-    if unknown:
-        raise ValueError(f"알 수 없는 방법: {sorted(unknown)} (가능: {sorted(DIRECTION)})")
+    groups = exp_cfg.get("groups") or [{**exp_cfg, "name": ""}]
+    plan = []
+    for g in groups:
+        runs = expand_grid(g, defaults)
+        bad = {r["seed_strategy"] for r in runs} - set(SEED_STRATEGIES)
+        if bad:
+            raise ValueError(f"알 수 없는 seed_strategy: {sorted(bad)} (가능: {SEED_STRATEGIES})")
+        methods = list(g["methods"])
+        unknown = set(methods) - set(DIRECTION)
+        if unknown:
+            raise ValueError(f"알 수 없는 방법: {sorted(unknown)} (가능: {sorted(DIRECTION)})")
+        plan.append((g.get("name", ""), runs, methods))
+    if set(splits) - {"val", "test"}:
+        raise ValueError(f"splits는 val·test만 가능: {splits}")
 
     cache = ScoreCache(ds, cfg, rank)
-    idx, y = eval_arrays(ds, "val")                      # validation만 사용
-    not_seed = ~np.isin(idx, cache.topic_ids)
+    evals = {sp: eval_arrays(ds, sp) for sp in splits}
     commit = git_commit()
     rows, stats = [], []
 
-    for i, run in enumerate(runs, 1):
-        for method in methods:
-            t0 = time.perf_counter()
-            score, info = cache.score(method, run)
-            d = DIRECTION[method]
-            sign = choose_direction(score, ds)[0] if d == "val" else d
-            risk = sign * np.asarray(score)
-            subsets = [("val", np.ones(len(idx), bool))]
-            if method == "ppr":                          # seed host 자신을 뺀 평가도 남긴다
-                subsets.append(("val_no_seed", not_seed))
-            for subset, mask in subsets:
-                m, st = metrics_row(risk[idx][mask], y[mask], n_boot, boot_seed)
-                rows.append({"exp": exp_cfg["name"], "method": method, **run,
-                             "direction": "+" if sign > 0 else "-", "eval_subset": subset, **m,
-                             "iterations": (info or {}).get("iterations", ""),
-                             "converged": (info or {}).get("converged", ""),
-                             "time_sec": round(time.perf_counter() - t0, 3), "commit": commit})
-                stats.append(st)
-        log(f"[{i}/{len(runs)}] " + ", ".join(f"{k}={run[k]}" for k in PARAMS))
+    for group, runs, methods in plan:
+        for i, run in enumerate(runs, 1):
+            for method in methods:
+                t0 = time.perf_counter()
+                score, info = cache.score(method, run)
+                d = DIRECTION[method]
+                sign = choose_direction(score, ds)[0] if d == "val" else d   # 방향은 항상 val로
+                risk = sign * np.asarray(score)
+                for sp, (idx, y) in evals.items():
+                    subsets = [(sp, np.ones(len(idx), bool))]
+                    if method == "ppr":                  # seed host 자신을 뺀 평가도 남긴다
+                        subsets.append((f"{sp}_no_seed", ~np.isin(idx, cache.topic_ids)))
+                    for subset, mask in subsets:
+                        m, st = metrics_row(risk[idx][mask], y[mask], n_boot, boot_seed)
+                        rows.append({"exp": exp_cfg["name"], "group": group, "method": method, **run,
+                                     "direction": "+" if sign > 0 else "-", "eval_subset": subset, **m,
+                                     "iterations": (info or {}).get("iterations", ""),
+                                     "converged": (info or {}).get("converged", ""),
+                                     "time_sec": round(time.perf_counter() - t0, 3), "commit": commit})
+                        stats.append(st)
+            log(f"[{group or exp_cfg['name']} {i}/{len(runs)}] " + ", ".join(f"{k}={run[k]}" for k in PARAMS))
 
-    add_reference_diffs(rows, stats, exp_cfg.get("reference"))
+    add_reference_diffs(rows, stats, exp_cfg.get("reference"), subsets=splits)
     return rows
 
 
-def add_reference_diffs(rows, stats, reference):
-    """기준 조건과의 PR-AUC 차이 CI (같은 bootstrap 표본이라 paired). random_seed는 같은 값끼리 짝짓는다."""
+def add_reference_diffs(rows, stats, reference, subsets=("val",)):
+    """기준 조건과의 PR-AUC 차이 CI (같은 bootstrap 표본이라 paired). random_seed는 같은 값끼리 짝짓는다.
+
+    분할(val·test)마다 같은 분할의 기준 줄과 짝짓는다. *_no_seed 줄에는 붙이지 않는다.
+    """
     if not reference:
         return
     ref_method = reference["method"]
     ref_params = {k: v for k, v in reference.items() if k != "method"}
     for row, st in zip(rows, stats):
-        if row["eval_subset"] != "val":
+        if row["eval_subset"] not in subsets:
             continue
         for ref_row, ref_st in zip(rows, stats):
-            if (ref_row["method"] == ref_method and ref_row["eval_subset"] == "val"
+            if (ref_row["method"] == ref_method and ref_row["eval_subset"] == row["eval_subset"]
                     and ref_row["random_seed"] == row["random_seed"]
                     and all(ref_row[k] == v for k, v in ref_params.items())
                     and all(ref_row[k] == row[k] for k in PARAMS if k not in ref_params and k != "random_seed")):
@@ -253,10 +269,10 @@ def add_reference_diffs(rows, stats, reference):
                 break
 
 
-def write_csv(rows, path):
+def write_csv(rows, path, columns=COLUMNS):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         w.writeheader()
         for row in rows:
             w.writerow({k: (f"{v:.6f}" if isinstance(v, float) else v) for k, v in row.items()})
